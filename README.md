@@ -81,7 +81,8 @@ if err != nil {
 
 ## Notes
 
-* Output is uncompressed RGBA payload stored as BGRA in EDDS blocks.
+* Package-level encode/decode supports
+  `BGRA8`, `RGBA8`, `DXT1/3/5`, `BC4`, `BC5`.
+* `DXT3`, `BC4`, `BC5` may decode in tooling but may not display correctly
+  in-game/Workbench.
 * Only 2D textures are handled.
-* BC7 output is untested.
-* BC4/BC5 do not show in-game (likely requires additional header fields).
