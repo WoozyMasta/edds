@@ -6,6 +6,7 @@ import (
 	"github.com/woozymasta/bcn"
 )
 
+// detectFormat detects the format of a DDS/EDDS file.
 func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) (bcn.Format, string) {
 	if dx10 != nil {
 		format := mapDxgiFormat(dx10.DXGIFormat)
@@ -51,6 +52,7 @@ func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) (bcn.Format, s
 	return bcn.FormatUnknown, "UNKNOWN"
 }
 
+// mapDxgiFormat maps a DXGI format to a BCn format.
 func mapDxgiFormat(dxgiFormat uint32) bcn.Format {
 	switch dxgiFormat {
 	case 71:
@@ -72,6 +74,7 @@ func mapDxgiFormat(dxgiFormat uint32) bcn.Format {
 	}
 }
 
+// intToFourCC converts a uint32 to a four-character code string.
 func intToFourCC(value uint32) string {
 	return string([]byte{
 		byte(value & 0xff),
@@ -81,6 +84,7 @@ func intToFourCC(value uint32) string {
 	})
 }
 
+// expectedDataLength calculates the expected data length for a given format and dimensions.
 func expectedDataLength(format bcn.Format, width, height int) int {
 	blocksW := (width + 3) / 4
 	blocksH := (height + 3) / 4
@@ -96,10 +100,12 @@ func expectedDataLength(format bcn.Format, width, height int) int {
 	}
 }
 
+// makeFourCC creates a four-character code from four bytes.
 func makeFourCC(a, b, c, d byte) uint32 {
 	return uint32(a) | uint32(b)<<8 | uint32(c)<<16 | uint32(d)<<24
 }
 
+// enfusionReserved1 returns the reserved1 field value for Enfusion files.
 func enfusionReserved1() [11]uint32 {
 	return [11]uint32{
 		0,
@@ -108,7 +114,9 @@ func enfusionReserved1() [11]uint32 {
 	}
 }
 
+// makeDDSHeader creates a DDS header for a given format and dimensions.
 func makeDDSHeader(width, height, mipMapCount uint32, format bcn.Format) (*bcn.DDSHeader, error) {
+	// set flags and caps
 	flags := uint32(bcn.DDSFlagCaps | bcn.DDSFlagHeight | bcn.DDSFlagWidth | bcn.DDSFlagPixelFormat)
 	caps := uint32(bcn.DDSCapsTexture)
 	if mipMapCount > 1 {
@@ -116,6 +124,7 @@ func makeDDSHeader(width, height, mipMapCount uint32, format bcn.Format) (*bcn.D
 		caps |= bcn.DDSCapsComplex | bcn.DDSCapsMipmap
 	}
 
+	// create DDS header
 	hdr := &bcn.DDSHeader{
 		Size:        bcn.DDSHeaderSize,
 		Flags:       flags,
@@ -128,6 +137,7 @@ func makeDDSHeader(width, height, mipMapCount uint32, format bcn.Format) (*bcn.D
 	}
 	hdr.PixelFormat.Size = bcn.DDSPixelFormatSize
 
+	// set pixel format
 	switch format {
 	case bcn.FormatDXT1:
 		hdr.Flags |= bcn.DDSFlagLinearSize

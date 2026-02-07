@@ -66,6 +66,7 @@ func Read(path string) (image.Image, error) {
 	return rgbaData, nil
 }
 
+// readLargestMipFromBlocks reads the largest mipmap from the blocks.
 func readLargestMipFromBlocks(r io.ReadSeeker, header *bcn.DDSHeader, format bcn.Format, mipMapCount uint32) ([]byte, int, int, error) {
 	if mipMapCount == 0 {
 		mipMapCount = 1
@@ -76,6 +77,7 @@ func readLargestMipFromBlocks(r io.ReadSeeker, header *bcn.DDSHeader, format bcn
 		return nil, 0, 0, fmt.Errorf("%w: %v", ErrReadBlockTable, err)
 	}
 
+	// read the largest mipmap from the blocks
 	for i := uint32(0); i < mipMapCount; i++ {
 		mipLevel := mipMapCount - i - 1
 		if mipLevel != 0 {
@@ -112,6 +114,11 @@ func readLargestMipFromBlocks(r io.ReadSeeker, header *bcn.DDSHeader, format bcn
 	return nil, 0, 0, fmt.Errorf("%w: mipmaps=%d", ErrPickLargestMip, mipMapCount)
 }
 
+// readLegacySingleBlock is a backward-compatibility fallback for older EDDS files.
+// Some legacy files do not have a valid block table after the DDS header and instead
+// store a single payload blob. We treat that blob as an LZ4 block first, and if
+// decompression fails but the size already matches the expected mip size, we accept it
+// as raw uncompressed data.
 func readLegacySingleBlock(r io.ReadSeeker, header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10, format bcn.Format) ([]byte, int, int, error) {
 	headerSize := int64(4 + bcn.DDSHeaderSize)
 	if dx10 != nil {
@@ -149,6 +156,7 @@ func readLegacySingleBlock(r io.ReadSeeker, header *bcn.DDSHeader, dx10 *bcn.DDS
 	return nil, 0, 0, fmt.Errorf("%w: %v", ErrParseSingleBlock, err)
 }
 
+// readEDDSHeaders reads the EDDS headers from the reader.
 func readEDDSHeaders(r io.Reader) (*bcn.DDSHeader, *bcn.DDSHeaderDX10, error) {
 	header, err := bcn.ReadDDSHeader(r)
 	if err != nil {

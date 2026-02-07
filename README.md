@@ -9,6 +9,7 @@ supports COPY/LZ4 blocks, and decodes the largest mipmap into RGBA.
 
 * EDDS read (config + decode largest mip)
 * EDDS write (RGBA/BGRA and BC1/BC2/BC3, optional mipmaps)
+* Optional passthrough of `bcn.EncodeOptions` (quality/workers/etc.)
 * LZ4 Enfusion chunk-stream compress/decompress (COPY/LZ4 blocks)
 * DDS header interop via `github.com/woozymasta/bcn`
 
@@ -47,6 +48,23 @@ if err != nil {
 
 ```go
 err := edds.WriteWithFormat(img, "atlas_bc5.edds", bcn.FormatBC5, 0)
+if err != nil {
+  /* handle */
+}
+```
+
+### Write EDDS with full options
+
+```go
+err := edds.WriteWithOptions(img, "atlas_dxt5.edds", &edds.WriteOptions{
+  Format:     bcn.FormatDXT5,
+  MaxMipMaps: 0,
+  Compress:   true,
+  EncodeOptions: &bcn.EncodeOptions{
+    QualityLevel: 8,
+    Workers: 0,
+  },
+})
 if err != nil {
   /* handle */
 }

@@ -13,6 +13,24 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.1.1][] - 2026-02-07
+
+### Added
+
+* New concise full-control writer API `WriteWithOptions`
+  with `WriteOptions` struct.
+* Table-driven regression tests.
+
+### Changed
+
+* Updated dependency `github.com/woozymasta/bcn` to `v0.1.3`.
+* Writer path now supports modern BCn encoder options via
+  `WriteOptions.EncodeOptions` (including quality levels and worker settings).
+* EDDS write/decode behavior now benefits from BCn-side optimizations
+  and parallel workers (`Workers=0` uses `GOMAXPROCS`).
+
+[0.1.1]: https://github.com/WoozyMasta/edds/compare/v0.1.0...v0.1.1
+
 ## [0.1.0][] - 2026-02-04
 
 ### Added

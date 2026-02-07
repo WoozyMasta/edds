@@ -1,5 +1,6 @@
 package edds
 
+// calculateMipMapCount calculates the number of mipmap levels for a given width and height.
 func calculateMipMapCount(width, height int) (int, error) {
 	count := 1
 	w, err := u32FromInt(width)
@@ -29,6 +30,7 @@ func calculateMipMapCount(width, height int) (int, error) {
 	return count, nil
 }
 
+// mipDimension calculates the dimension of a mipmap level.
 func mipDimension(base, level int) int {
 	result := base >> level
 	if result < 1 {

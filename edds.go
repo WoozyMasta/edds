@@ -14,17 +14,16 @@ const (
 	BlockMagicCOPY = "COPY"
 	// BlockMagicLZ4 marks an LZ4-compressed block.
 	BlockMagicLZ4 = "LZ4 "
-
 	// ChunkSize is the Enfusion chunk size for LZ4 streams.
 	ChunkSize = 64 * 1024
 )
 
 // Block represents one mipmap block body.
 type Block struct {
-	Magic            string
-	Data             []byte
-	Size             int32
-	UncompressedSize int32
+	Magic            string // COPY or LZ4
+	Data             []byte // compressed or uncompressed data
+	Size             int32  // compressed size
+	UncompressedSize int32  // uncompressed size
 }
 
 // writeBlockData writes the block payload (no table entry).
@@ -36,11 +35,14 @@ func writeBlockData(w io.Writer, block *Block) error {
 		if _, err := w.Write(block.Data); err != nil {
 			return fmt.Errorf("%w: %v", ErrWriteChunkStream, err)
 		}
+
 		return nil
 	}
+
 	if _, err := w.Write(block.Data); err != nil {
 		return fmt.Errorf("%w: %v", ErrWriteBlockPayload, err)
 	}
+
 	return nil
 }
 
@@ -62,6 +64,7 @@ func compressBlock(data []byte) (*Block, error) {
 	maxCompressedSize := lz4.CompressBlockBound(ChunkSize)
 	compressBuf := make([]byte, maxCompressedSize)
 
+	// compress data in chunks of ChunkSize
 	for i := 0; i < len(data); i += ChunkSize {
 		end := i + ChunkSize
 		if end > len(data) {
@@ -136,6 +139,7 @@ func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error)
 		return nil, fmt.Errorf("%w: %d", ErrInvalidTargetSize, targetSize)
 	}
 
+	// check for legacy block format with explicit uncompressed size
 	data := block.Data
 	if len(data) >= 8 {
 		peek := int(binary.LittleEndian.Uint32(data[:4]))
@@ -155,6 +159,7 @@ func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error)
 
 	r := bytes.NewReader(data)
 
+	// decode LZ4 chunk-stream
 	for {
 		if r.Len() < 4 {
 			return nil, fmt.Errorf("%w: need 4 bytes header, have %d", ErrChunkStreamTruncated, r.Len())
@@ -228,11 +233,13 @@ func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error)
 	return target, nil
 }
 
+// blockHeader represents one mipmap block header.
 type blockHeader struct {
-	Magic string
-	Size  int32
+	Magic string // COPY or LZ4
+	Size  int32  // compressed size
 }
 
+// readBlockTable reads the block table from the reader.
 func readBlockTable(r io.Reader, mipMapCount uint32) ([]blockHeader, error) {
 	hdrs := make([]blockHeader, 0, mipMapCount)
 	for i := uint32(0); i < mipMapCount; i++ {
@@ -261,6 +268,7 @@ func readBlockTable(r io.Reader, mipMapCount uint32) ([]blockHeader, error) {
 	return hdrs, nil
 }
 
+// readBlockBody reads the block body from the reader.
 func readBlockBody(r io.Reader, h blockHeader) (*Block, error) {
 	if h.Size < 0 {
 		return nil, fmt.Errorf("%w: %d", ErrBlockBodyInvalidSize, h.Size)
