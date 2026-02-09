@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.1.2][] - 2026-02-10
+
+### Added
+
+* Decode with options `ReadWithOptions(path, opts)` and `ReadOptions` struct.
+
+[0.1.2]: https://github.com/WoozyMasta/edds/compare/v0.1.1...v0.1.2
+
 ## [0.1.1][] - 2026-02-07
 
 ### Added

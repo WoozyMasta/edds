@@ -10,6 +10,12 @@ import (
 	"github.com/woozymasta/bcn"
 )
 
+// ReadOptions configures EDDS reading (e.g. BCn decode workers).
+type ReadOptions struct {
+	// DecodeOptions are passed to the BCn decoder (e.g. Workers).
+	DecodeOptions *bcn.DecodeOptions
+}
+
 // ReadConfig reads EDDS file configuration without decoding image data.
 func ReadConfig(path string) (image.Config, error) {
 	f, err := os.Open(path)
@@ -32,6 +38,12 @@ func ReadConfig(path string) (image.Config, error) {
 
 // Read reads and decodes an EDDS file into an image.
 func Read(path string) (image.Image, error) {
+	return ReadWithOptions(path, nil)
+}
+
+// ReadWithOptions reads and decodes an EDDS file with the given options.
+// Nil opts uses default decoding (no DecodeOptions passed to bcn).
+func ReadWithOptions(path string, opts *ReadOptions) (image.Image, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %q: %v", ErrOpenFile, path, err)
@@ -58,7 +70,11 @@ func Read(path string) (image.Image, error) {
 		}
 	}
 
-	rgbaData, err := bcn.DecodeImage(mipData, mipWidth, mipHeight, format)
+	decOpts := (*bcn.DecodeOptions)(nil)
+	if opts != nil {
+		decOpts = opts.DecodeOptions
+	}
+	rgbaData, err := bcn.DecodeImageWithOptions(mipData, mipWidth, mipHeight, format, decOpts)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDecodeImage, err)
 	}
