@@ -13,6 +13,23 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.1.3][] - 2026-02-17
+
+### Added
+
+* Baseline benchmarks for main IO flows:
+  `BenchmarkMainFlowWriteDXT5`, `BenchmarkMainFlowReadDXT5`,
+  `BenchmarkMainFlowWriteBGRA8`, `BenchmarkMainFlowReadBGRA8`.
+* Container-only write benchmark `BenchmarkContainerWriteFromBlocksDXT5`
+  with `COPY`/`LZ4` sub-benchmarks to separate EDDS container cost
+  from BCn encoding cost.
+
+### Changed
+
+* Updated dependency `github.com/woozymasta/bcn` to `v0.1.5`.
+
+[0.1.3]: https://github.com/WoozyMasta/edds/compare/v0.1.2...v0.1.3
+
 ## [0.1.2][] - 2026-02-10
 
 ### Added
