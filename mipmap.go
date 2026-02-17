@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
+// Source: github.com/woozymasta/edds
+
 package edds
 
 // calculateMipMapCount calculates the number of mipmap levels for a given width and height.

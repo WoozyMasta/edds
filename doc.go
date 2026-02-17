@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
+// Source: github.com/woozymasta/edds
+
 /*
 Package edds implements Arma/DayZ EDDS (Enfusion DDS) container read/write
 with optional LZ4 chunk-stream compression.

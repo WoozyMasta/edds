@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
+// Source: github.com/woozymasta/edds
+
 package edds
 
 import (
@@ -66,10 +70,7 @@ func compressBlock(data []byte) (*Block, error) {
 
 	// compress data in chunks of ChunkSize
 	for i := 0; i < len(data); i += ChunkSize {
-		end := i + ChunkSize
-		if end > len(data) {
-			end = len(data)
-		}
+		end := min(i+ChunkSize, len(data))
 		srcChunk := data[i:end]
 		isLast := end == len(data)
 
@@ -188,10 +189,7 @@ func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error)
 		if remaining <= 0 {
 			return nil, ErrDecodeOverrun
 		}
-		want := ChunkSize
-		if want > remaining {
-			want = remaining
-		}
+		want := min(ChunkSize, remaining)
 		dst := target[outIdx : outIdx+want]
 
 		n, err := lz4.UncompressBlockWithDict(compressed, dst, dict[:dictSize])
@@ -242,7 +240,7 @@ type blockHeader struct {
 // readBlockTable reads the block table from the reader.
 func readBlockTable(r io.Reader, mipMapCount uint32) ([]blockHeader, error) {
 	hdrs := make([]blockHeader, 0, mipMapCount)
-	for i := uint32(0); i < mipMapCount; i++ {
+	for i := range mipMapCount {
 		magicBytes := make([]byte, 4)
 		if _, err := io.ReadFull(r, magicBytes); err != nil {
 			return nil, fmt.Errorf("%w: %d: %v", ErrBlockTableMagicRead, i, err)
