@@ -3,6 +3,17 @@ run:
   tests: false
 linters:
   enable:
+    - modernize
+    - prealloc
+    # - tagalign
+    - tagliatelle
+    - perfsprint
+    - asciicheck
+    - bidichk
+    # - gocognit # cyclop
+    - decorder
+    - dupl
+    - gocritic
     - bodyclose
     - gosec
     - nilerr
@@ -14,6 +25,9 @@ linters:
     - unconvert
     - unparam
     - whitespace
+    - staticcheck
+    - zerologlint
+    - goheader
   exclusions:
     generated: lax
     presets:
@@ -22,6 +36,23 @@ linters:
       - third_party$
       - builtin$
       - examples$
+  settings:
+    goheader:
+      template: |-
+        SPDX-License-Identifier: MIT
+        Copyright (c) 2026 WoozyMasta
+        Source: github.com/woozymasta/edds
+    gosec:
+      # Temporary workaround:
+      # G115 currently panics in this module ("0.85 not an Int") on float-threshold code paths.
+      # Try re-enabling G115 after updating gosec/golangci-lint to a version with the fix.
+      excludes:
+        - G115
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+          yaml: snake
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
