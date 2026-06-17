@@ -1,3 +1,6 @@
-github.com/pierrec/lz4/v4 v4.1.26 h1:GrpZw1gZttORinvzBdXPUXATeqlJjqUG/D87TKMnhjY=
-github.com/woozymasta/bcn v0.1.5 h1:MLhhmEY5Fsju4Ty7Y8x3KqRpGLmoy8yOXTTYuuQ05oM=
-github.com/woozymasta/bcn v0.1.5/go.mod h1:cxN8xsxZ2JiJLoduPifkXAcsTzRF28lP1/mChSxttnI=
+github.com/pierrec/lz4/v4 v4.1.27 h1:+PhzhWDrjRj89TH2sw43nE3+4+W8lSxIuQadEHZyjUk=
+github.com/pierrec/lz4/v4 v4.1.27/go.mod h1:EoQMVJgeeEOMsCqCzqFm2O0cJvljX2nGZjcRIPL34O4=
+github.com/woozymasta/bcn v0.3.0 h1:rfncunE3Cr4zY1cx/lWinM3sy+jMx49GKSCKd68n/ew=
+github.com/woozymasta/bcn v0.3.0/go.mod h1:hD5uVT37krcNs/1wBB2FKtlwfDeNJY8qKh7TnqNF7Ig=
+golang.org/x/sys v0.46.0 h1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=
+golang.org/x/sys v0.46.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
