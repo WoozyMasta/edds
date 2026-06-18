@@ -33,7 +33,8 @@ func FuzzDecompressBlock(f *testing.F) {
 	for i := range raw {
 		raw[i] = byte(i / 64)
 	}
-	block, err := compressBlockWithOptions(raw, normalizedCompressionOptions{
+	var compressor blockCompressor
+	block, _, err := compressor.compressBlock(nil, raw, normalizedCompressionOptions{
 		mode:      CompressionLZ4,
 		minRatio:  1.0 / 0.85,
 		chunkSize: ChunkSize,
@@ -56,6 +57,7 @@ func FuzzDecompressBlock(f *testing.F) {
 			Data:  data,
 		}
 
-		_, _ = decompressBlock(block, expectedSize)
+		var decompressor blockDecompressor
+		_, _ = decompressor.decompressBlock(nil, block, expectedSize)
 	})
 }

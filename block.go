@@ -51,11 +51,6 @@ func writeBlockData(w io.Writer, block *Block) error {
 	return nil
 }
 
-// readBlockTable reads block headers for all mipmaps.
-func readBlockTable(r io.Reader, mipMapCount uint32) ([]blockHeader, error) {
-	return readBlockTableInto(nil, r, mipMapCount)
-}
-
 // readBlockTableInto reads block headers into a reusable slice.
 func readBlockTableInto(dst []blockHeader, r io.Reader, mipMapCount uint32) ([]blockHeader, error) {
 	hdrs := ensureBlockHeaderSlots(dst, int(mipMapCount))[:0]

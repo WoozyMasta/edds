@@ -170,13 +170,6 @@ func copyBlock(data []byte) (*Block, error) {
 	return &Block{Magic: BlockMagicCOPY, Size: uncompressedSize, Data: data}, nil
 }
 
-// compressBlockWithOptions compresses raw data according to normalized options.
-func compressBlockWithOptions(data []byte, opts normalizedCompressionOptions) (*Block, error) {
-	var c blockCompressor
-	block, _, err := c.compressBlock(nil, data, opts)
-	return block, err
-}
-
 // blockCompressor keeps temporary LZ4 buffers for repeated block compression.
 type blockCompressor struct {
 	compressBuf []byte
@@ -304,12 +297,6 @@ func compressedStreamCapacity(dataLen, chunkSize int, minRatio float64) int {
 	}
 
 	return capacity
-}
-
-// decompressBlock inflates an EDDS block into raw data.
-func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error) {
-	var d blockDecompressor
-	return d.decompressBlock(nil, block, expectedUncompressedSize)
 }
 
 // blockDecompressor keeps the rolling LZ4 dictionary for repeated block decompression.

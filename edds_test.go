@@ -32,12 +32,14 @@ func TestCompressRoundTrip(t *testing.T) {
 				t.Fatalf("normalizeCompressionOptions: %v", err)
 			}
 
-			block, err := compressBlockWithOptions(data, compression)
+			var compressor blockCompressor
+			block, _, err := compressor.compressBlock(nil, data, compression)
 			if err != nil {
 				t.Fatalf("compressBlockWithOptions: %v", err)
 			}
 
-			out, err := decompressBlock(block, len(data))
+			var decompressor blockDecompressor
+			out, err := decompressor.decompressBlock(nil, block, len(data))
 			if err != nil {
 				t.Fatalf("decompressBlock: %v", err)
 			}
@@ -314,7 +316,7 @@ func TestReadBlockTableErrors(t *testing.T) {
 		_, _ = buf.WriteString("ABCD")
 		_ = binary.Write(&buf, binary.LittleEndian, int32(8))
 
-		_, err := readBlockTable(bytes.NewReader(buf.Bytes()), 1)
+		_, err := readBlockTableInto(nil, bytes.NewReader(buf.Bytes()), 1)
 		if !errors.Is(err, ErrBlockTableUnknownMagic) {
 			t.Fatalf("expected ErrBlockTableUnknownMagic, got %v", err)
 		}
@@ -327,7 +329,7 @@ func TestReadBlockTableErrors(t *testing.T) {
 		_, _ = buf.WriteString(BlockMagicCOPY)
 		_ = binary.Write(&buf, binary.LittleEndian, int32(-1))
 
-		_, err := readBlockTable(bytes.NewReader(buf.Bytes()), 1)
+		_, err := readBlockTableInto(nil, bytes.NewReader(buf.Bytes()), 1)
 		if !errors.Is(err, ErrBlockTableInvalidSize) {
 			t.Fatalf("expected ErrBlockTableInvalidSize, got %v", err)
 		}
