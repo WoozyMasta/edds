@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/pierrec/lz4/v4 v4.1.27
-	github.com/woozymasta/bcn v0.4.0
+	github.com/woozymasta/bcn v0.5.0
 )
 
 require golang.org/x/sys v0.46.0 // indirect
