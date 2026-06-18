@@ -14,6 +14,23 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.3.0][] - 2026-06-18
+
+### Added
+
+* Stream-oriented `Encode`/`Decode` APIs
+  for working with `io.Writer` and `io.Reader`.
+* Reusable `Encoder` and `Decoder` types
+  for batch pipelines with lower per-image allocations.
+* Stream-oriented `EncodeFromBlocks` APIs
+  for writing pre-encoded mip payloads to `io.Writer`.
+
+### Changed
+
+* EDDS encode/decode paths now reuse BCn and container buffers where possible.
+
+[0.3.0]: https://github.com/WoozyMasta/edds/compare/v0.2.0...v0.3.0
+
 ## [0.2.0][] - 2026-06-18
 
 ### Added
