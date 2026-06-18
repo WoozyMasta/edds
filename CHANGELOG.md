@@ -27,8 +27,10 @@ and this project adheres to [Semantic Versioning][].
   `WriteOptions.Compression.Mode`.
 * Default write compression now uses fast LZ4 instead of LZ4 HC,
   keeping LZ4 size savings while avoiding previous high-compression CPU cost;
-  `BenchmarkMainFlowWriteDXT5`: about 55% faster,
+  `BenchmarkMainFlowWriteDXT5`: about 77% faster,
   `BenchmarkContainerWriteFromBlocksDXT5/LZ4`: about 65% faster.
+* Updated dependency `github.com/woozymasta/bcn` to `v0.4.0`
+  and switched mipmap generation to `GenerateMipmapsN`.
 
 ## [0.1.3][] - 2026-02-17
 
