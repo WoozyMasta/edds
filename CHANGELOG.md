@@ -13,6 +13,23 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## Unreleased
+
+### Added
+
+* Configurable EDDS block compression via `CompressionOptions`.
+* `WriteFromBlocksWithCompressionOptions`
+  for writing pre-encoded payloads with explicit compression settings.
+
+### Changed
+
+* `WriteOptions.Compress` is now deprecated in favor of
+  `WriteOptions.Compression.Mode`.
+* Default write compression now uses fast LZ4 instead of LZ4 HC,
+  keeping LZ4 size savings while avoiding previous high-compression CPU cost;
+  `BenchmarkMainFlowWriteDXT5`: about 55% faster,
+  `BenchmarkContainerWriteFromBlocksDXT5/LZ4`: about 65% faster.
+
 ## [0.1.3][] - 2026-02-17
 
 ### Added

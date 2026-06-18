@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"slices"
 
 	"github.com/woozymasta/bcn"
 )
@@ -21,7 +22,11 @@ type WriteOptions struct {
 	Format bcn.Format
 	// MaxMipMaps limits written mipmaps (0 = full chain).
 	MaxMipMaps int
+	// Compression configures EDDS block compression.
+	Compression CompressionOptions
 	// Compress controls EDDS block compression (LZ4 if true, COPY if false).
+	//
+	// Deprecated: use Compression.Mode.
 	Compress bool
 }
 
@@ -69,20 +74,74 @@ func WriteWithOptions(img image.Image, path string, opts *WriteOptions) error {
 // normalizeWriteOptions normalizes the write options.
 func normalizeWriteOptions(opts *WriteOptions) WriteOptions {
 	cfg := WriteOptions{
-		Format:     bcn.FormatBGRA8,
-		MaxMipMaps: 0,
-		Compress:   true,
+		Format:      bcn.FormatBGRA8,
+		MaxMipMaps:  0,
+		Compression: CompressionOptions{Mode: CompressionLZ4},
+		Compress:    true,
 	}
 	if opts == nil {
 		return cfg
 	}
+
 	if opts.Format != bcn.FormatUnknown {
 		cfg.Format = opts.Format
 	}
 	cfg.MaxMipMaps = opts.MaxMipMaps
 	cfg.Compress = opts.Compress
+	cfg.Compression = opts.Compression
 	cfg.EncodeOptions = opts.EncodeOptions
+
 	return cfg
+}
+
+// WriteFromBlocks writes an EDDS file from pre-encoded mip payloads.
+// The mipmaps slice must be ordered from largest to smallest.
+func WriteFromBlocks(path string, format bcn.Format, width, height int, mipmaps [][]byte) error {
+	compression, err := normalizeCompressionOptions(
+		CompressionOptions{Mode: CompressionLZ4},
+		true)
+	if err != nil {
+		return err
+	}
+
+	return writeFromBlocks(path, format, width, height, mipmaps, compression)
+}
+
+// WriteFromBlocksWithCompression writes an EDDS file from pre-encoded mip payloads.
+// The mipmaps slice must be ordered from largest to smallest.
+// compress=false stores COPY blocks (no LZ4).
+func WriteFromBlocksWithCompression(
+	path string,
+	format bcn.Format,
+	width, height int,
+	mipmaps [][]byte,
+	compress bool,
+) error {
+	compression, err := normalizeCompressionOptions(
+		CompressionOptions{Mode: compressionModeFromBool(compress)},
+		compress)
+	if err != nil {
+		return err
+	}
+
+	return writeFromBlocks(path, format, width, height, mipmaps, compression)
+}
+
+// WriteFromBlocksWithCompressionOptions writes an EDDS file from pre-encoded mip payloads.
+// The mipmaps slice must be ordered from largest to smallest.
+func WriteFromBlocksWithCompressionOptions(
+	path string,
+	format bcn.Format,
+	width, height int,
+	mipmaps [][]byte,
+	compressionOpts CompressionOptions,
+) error {
+	compression, err := normalizeCompressionOptions(compressionOpts, true)
+	if err != nil {
+		return err
+	}
+
+	return writeFromBlocks(path, format, width, height, mipmaps, compression)
 }
 
 // writeWithOptions writes an EDDS file with full low-level options.
@@ -122,23 +181,22 @@ func writeWithOptions(
 		payloads[i] = data
 	}
 
-	return writeFromBlocks(path, cfg.Format, width, height, payloads, cfg.Compress)
+	compression, err := normalizeCompressionOptions(cfg.Compression, cfg.Compress)
+	if err != nil {
+		return err
+	}
+
+	return writeFromBlocks(path, cfg.Format, width, height, payloads, compression)
 }
 
-// WriteFromBlocks writes an EDDS file from pre-encoded mip payloads.
-// The mipmaps slice must be ordered from largest to smallest.
-func WriteFromBlocks(path string, format bcn.Format, width, height int, mipmaps [][]byte) error {
-	return writeFromBlocks(path, format, width, height, mipmaps, true)
-}
-
-// WriteFromBlocksWithCompression writes an EDDS file from pre-encoded mip payloads.
-// The mipmaps slice must be ordered from largest to smallest.
-// compress=false stores COPY blocks (no LZ4).
-func WriteFromBlocksWithCompression(path string, format bcn.Format, width, height int, mipmaps [][]byte, compress bool) error {
-	return writeFromBlocks(path, format, width, height, mipmaps, compress)
-}
-
-func writeFromBlocks(path string, format bcn.Format, width, height int, mipmaps [][]byte, compress bool) error {
+// writeFromBlocks validates pre-encoded mipmaps and writes an EDDS container.
+func writeFromBlocks(
+	path string,
+	format bcn.Format,
+	width, height int,
+	mipmaps [][]byte,
+	compression normalizedCompressionOptions,
+) error {
 	if len(mipmaps) == 0 {
 		return ErrEmptyMipmaps
 	}
@@ -179,8 +237,8 @@ func writeFromBlocks(path string, format bcn.Format, width, height int, mipmaps 
 			return fmt.Errorf("%w: mipmap %d: expected %d, got %d", ErrMipmapSizeMismatch, i, expected, len(mip))
 		}
 
-		if compress {
-			block, err := compressBlock(mip)
+		if compression.mode != CompressionNone {
+			block, err := compressBlockWithOptions(mip, compression)
 			if err != nil {
 				return fmt.Errorf("%w: mipmap %d: %v", ErrCompressMipmap, i, err)
 			}
@@ -210,8 +268,8 @@ func writeFromBlocks(path string, format bcn.Format, width, height int, mipmaps 
 	}
 
 	// write block table
-	for i := len(blocks) - 1; i >= 0; i-- {
-		block := blocks[i]
+	for i, v := range slices.Backward(blocks) {
+		block := v
 		if _, err := f.Write([]byte(block.Magic)); err != nil {
 			return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockMagic, i, err)
 		}
@@ -221,8 +279,8 @@ func writeFromBlocks(path string, format bcn.Format, width, height int, mipmaps 
 	}
 
 	// write block data
-	for i := len(blocks) - 1; i >= 0; i-- {
-		if err := writeBlockData(f, blocks[i]); err != nil {
+	for i, v := range slices.Backward(blocks) {
+		if err := writeBlockData(f, v); err != nil {
 			return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockData, i, err)
 		}
 	}

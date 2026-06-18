@@ -97,6 +97,121 @@ func benchPayloadBytes(payloads [][]byte) int64 {
 	return total
 }
 
+func benchCompressionOptions() []CompressionOptions {
+	return []CompressionOptions{
+		{Mode: CompressionNone},
+		{Mode: CompressionLZ4},
+		{Mode: CompressionLZ4HC},
+	}
+}
+
+func benchCompressedPayloadBytes(b *testing.B, payloads [][]byte, compressionOpts CompressionOptions) int64 {
+	b.Helper()
+
+	compression, err := normalizeCompressionOptions(compressionOpts, true)
+	if err != nil {
+		b.Fatalf("normalize compression %s: %v", compressionOpts.Mode, err)
+	}
+
+	var total int64
+	for i, payload := range payloads {
+		block, err := compressBlockWithOptions(payload, compression)
+		if err != nil {
+			b.Fatalf("compress mipmap %d with %s: %v", i, compressionOpts.Mode, err)
+		}
+		total += int64(block.Size)
+	}
+
+	return total
+}
+
+func benchReportCompressionRatio(b *testing.B, rawBytes, storedBytes int64) {
+	b.Helper()
+
+	if storedBytes <= 0 {
+		b.Fatal("compressed payload is empty")
+	}
+	b.ReportMetric(float64(rawBytes)/float64(storedBytes), "raw/stored")
+}
+
+// benchImageBytes computes total source image bytes for throughput reporting.
+func benchImageBytes(mips []*image.NRGBA) int64 {
+	var total int64
+	for _, mip := range mips {
+		total += int64(len(mip.Pix))
+	}
+
+	return total
+}
+
+func BenchmarkStageGenerateMipmaps(b *testing.B) {
+	img := benchMainFlowImage(1024, 1024)
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(img.Pix)))
+	b.ResetTimer()
+
+	for b.Loop() {
+		mips := bcn.GenerateMipmaps(img, false)
+		if len(mips) == 0 {
+			b.Fatal("generate mipmaps: empty result")
+		}
+	}
+}
+
+func BenchmarkStageEncodeMipChainDXT5(b *testing.B) {
+	img := benchMainFlowImage(1024, 1024)
+	opts := benchMainFlowWriteOptionsDXT5()
+	mips := bcn.GenerateMipmaps(img, false)
+
+	if opts.MaxMipMaps > 0 && len(mips) > opts.MaxMipMaps {
+		mips = mips[:opts.MaxMipMaps]
+	}
+
+	b.ReportAllocs()
+	b.SetBytes(benchImageBytes(mips))
+	b.ResetTimer()
+
+	for b.Loop() {
+		for i, mip := range mips {
+			if _, _, _, err := bcn.EncodeImageWithOptions(mip, opts.Format, opts.EncodeOptions); err != nil {
+				b.Fatalf("encode mipmap %d: %v", i, err)
+			}
+		}
+	}
+}
+
+func BenchmarkStageCompressBlocksDXT5(b *testing.B) {
+	img := benchMainFlowImage(1024, 1024)
+	opts := benchMainFlowWriteOptionsDXT5()
+	payloads := benchMainFlowPayloads(b, img, opts.Format, opts.MaxMipMaps, opts.EncodeOptions)
+	payloadBytes := benchPayloadBytes(payloads)
+
+	for _, compressionOpts := range benchCompressionOptions() {
+		compressionOpts := compressionOpts
+		b.Run(compressionOpts.Mode.String(), func(b *testing.B) {
+			compression, err := normalizeCompressionOptions(compressionOpts, true)
+			if err != nil {
+				b.Fatalf("normalize compression: %v", err)
+			}
+			storedBytes := benchCompressedPayloadBytes(b, payloads, compressionOpts)
+
+			b.ReportAllocs()
+			b.SetBytes(payloadBytes)
+			b.ResetTimer()
+
+			for b.Loop() {
+				for i, payload := range payloads {
+					if _, err := compressBlockWithOptions(payload, compression); err != nil {
+						b.Fatalf("compress mipmap %d with %s: %v", i, compressionOpts.Mode, err)
+					}
+				}
+			}
+			benchReportCompressionRatio(b, payloadBytes, storedBytes)
+		})
+	}
+}
+
 func BenchmarkMainFlowWriteDXT5(b *testing.B) {
 	img := benchMainFlowImage(1024, 1024)
 	path := filepath.Join(b.TempDir(), "main_flow_write_dxt5.edds")
@@ -110,6 +225,36 @@ func BenchmarkMainFlowWriteDXT5(b *testing.B) {
 		if err := WriteWithOptions(img, path, opts); err != nil {
 			b.Fatalf("write: %v", err)
 		}
+	}
+}
+
+func BenchmarkMainFlowWriteDXT5ByCompression(b *testing.B) {
+	img := benchMainFlowImage(1024, 1024)
+	opts := benchMainFlowWriteOptionsDXT5()
+	payloads := benchMainFlowPayloads(b, img, opts.Format, opts.MaxMipMaps, opts.EncodeOptions)
+	payloadBytes := benchPayloadBytes(payloads)
+
+	for _, compressionOpts := range benchCompressionOptions() {
+		compressionOpts := compressionOpts
+		b.Run(compressionOpts.Mode.String(), func(b *testing.B) {
+			path := filepath.Join(b.TempDir(), "main_flow_write_dxt5.edds")
+			writeOpts := *opts
+			writeOpts.Compress = compressionOpts.Mode != CompressionNone
+			writeOpts.Compression = compressionOpts
+
+			storedBytes := benchCompressedPayloadBytes(b, payloads, compressionOpts)
+
+			b.ReportAllocs()
+			b.SetBytes(int64(len(img.Pix)))
+			b.ResetTimer()
+
+			for b.Loop() {
+				if err := WriteWithOptions(img, path, &writeOpts); err != nil {
+					b.Fatalf("write with %s: %v", compressionOpts.Mode, err)
+				}
+			}
+			benchReportCompressionRatio(b, payloadBytes, storedBytes)
+		})
 	}
 }
 
@@ -138,29 +283,23 @@ func BenchmarkContainerWriteFromBlocksDXT5(b *testing.B) {
 	width := img.Bounds().Dx()
 	height := img.Bounds().Dy()
 
-	b.Run("COPY", func(b *testing.B) {
-		b.ReportAllocs()
-		b.SetBytes(payloadBytes)
-		b.ResetTimer()
+	for _, compressionOpts := range benchCompressionOptions() {
+		compressionOpts := compressionOpts
+		b.Run(compressionOpts.Mode.String(), func(b *testing.B) {
+			storedBytes := benchCompressedPayloadBytes(b, payloads, compressionOpts)
 
-		for b.Loop() {
-			if err := WriteFromBlocksWithCompression(path, opts.Format, width, height, payloads, false); err != nil {
-				b.Fatalf("write from blocks (COPY): %v", err)
+			b.ReportAllocs()
+			b.SetBytes(payloadBytes)
+			b.ResetTimer()
+
+			for b.Loop() {
+				if err := WriteFromBlocksWithCompressionOptions(path, opts.Format, width, height, payloads, compressionOpts); err != nil {
+					b.Fatalf("write from blocks (%s): %v", compressionOpts.Mode, err)
+				}
 			}
-		}
-	})
-
-	b.Run("LZ4", func(b *testing.B) {
-		b.ReportAllocs()
-		b.SetBytes(payloadBytes)
-		b.ResetTimer()
-
-		for b.Loop() {
-			if err := WriteFromBlocksWithCompression(path, opts.Format, width, height, payloads, true); err != nil {
-				b.Fatalf("write from blocks (LZ4): %v", err)
-			}
-		}
-	})
+			benchReportCompressionRatio(b, payloadBytes, storedBytes)
+		})
+	}
 }
 
 func BenchmarkMainFlowReadDXT5(b *testing.B) {

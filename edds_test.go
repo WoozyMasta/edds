@@ -16,21 +16,55 @@ import (
 func TestCompressRoundTrip(t *testing.T) {
 	data := make([]byte, 128*1024)
 	for i := range data {
-		data[i] = byte((i*31 + 7) & 0xff)
+		data[i] = byte((i / 1024) & 0xff)
 	}
 
-	block, err := compressBlock(data)
-	if err != nil {
-		t.Fatalf("compressBlock: %v", err)
+	for _, compressionOpts := range []CompressionOptions{
+		{Mode: CompressionNone},
+		{Mode: CompressionLZ4},
+		{Mode: CompressionLZ4HC},
+		{Mode: CompressionLZ4HC, HCLevel: 9},
+	} {
+		compressionOpts := compressionOpts
+		t.Run(compressionOpts.Mode.String(), func(t *testing.T) {
+			compression, err := normalizeCompressionOptions(compressionOpts, true)
+			if err != nil {
+				t.Fatalf("normalizeCompressionOptions: %v", err)
+			}
+
+			block, err := compressBlockWithOptions(data, compression)
+			if err != nil {
+				t.Fatalf("compressBlockWithOptions: %v", err)
+			}
+
+			out, err := decompressBlock(block, len(data))
+			if err != nil {
+				t.Fatalf("decompressBlock: %v", err)
+			}
+
+			if !bytes.Equal(out, data) {
+				t.Fatalf("round-trip mismatch")
+			}
+		})
+	}
+}
+
+func TestCompressInvalidOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []CompressionOptions{
+		{Mode: CompressionMode(999)},
+		{Mode: CompressionLZ4, HCLevel: 1},
+		{Mode: CompressionLZ4HC, HCLevel: 10},
+		{Mode: CompressionLZ4, MinRatio: -1},
+		{Mode: CompressionLZ4, ChunkSize: ChunkSize + 1},
 	}
 
-	out, err := decompressBlock(block, len(data))
-	if err != nil {
-		t.Fatalf("decompressBlock: %v", err)
-	}
-
-	if !bytes.Equal(out, data) {
-		t.Fatalf("round-trip mismatch")
+	for _, compressionOpts := range tests {
+		_, err := normalizeCompressionOptions(compressionOpts, true)
+		if !errors.Is(err, ErrInvalidCompressionOptions) {
+			t.Fatalf("expected ErrInvalidCompressionOptions for %+v, got %v", compressionOpts, err)
+		}
 	}
 }
 

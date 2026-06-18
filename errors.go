@@ -23,6 +23,8 @@ var (
 	ErrChunkTooLarge = errors.New("compressed chunk too large")
 	// ErrLZ4Compress indicates LZ4 compression failed.
 	ErrLZ4Compress = errors.New("LZ4 compression failed")
+	// ErrInvalidCompressionOptions indicates invalid compression settings.
+	ErrInvalidCompressionOptions = errors.New("invalid compression options")
 	// ErrLZ4Decode indicates LZ4 decode failed.
 	ErrLZ4Decode = errors.New("LZ4 decode failed")
 	// ErrCopySizeMismatch indicates COPY block data size mismatch.

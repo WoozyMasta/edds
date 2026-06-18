@@ -59,7 +59,9 @@ if err != nil {
 err := edds.WriteWithOptions(img, "atlas_dxt5.edds", &edds.WriteOptions{
   Format:     bcn.FormatDXT5,
   MaxMipMaps: 0,
-  Compress:   true,
+  Compression: edds.CompressionOptions{
+    Mode: edds.CompressionLZ4,
+  },
   EncodeOptions: &bcn.EncodeOptions{
     QualityLevel: 8,
     Workers: 0,
@@ -69,6 +71,9 @@ if err != nil {
   /* handle */
 }
 ```
+
+Use `CompressionNone` for COPY blocks
+or `CompressionLZ4HC` with `HCLevel` for slower size-priority compression.
 
 ### Write EDDS from pre-encoded blocks
 
