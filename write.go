@@ -82,6 +82,57 @@ func EncodeWithOptions(w io.Writer, img image.Image, opts *WriteOptions) error {
 	return NewEncoder().EncodeWithOptions(w, img, opts)
 }
 
+// EncodeFromBlocks writes an EDDS stream from pre-encoded mip payloads.
+// The mipmaps slice must be ordered from largest to smallest.
+func EncodeFromBlocks(w io.Writer, format bcn.Format, width, height int, mipmaps [][]byte) error {
+	compression, err := normalizeCompressionOptions(
+		CompressionOptions{Mode: CompressionLZ4},
+		true)
+	if err != nil {
+		return err
+	}
+
+	return NewEncoder().writeFromBlocks(w, format, width, height, mipmaps, compression)
+}
+
+// EncodeFromBlocksWithCompression writes an EDDS stream from pre-encoded mip payloads.
+// The mipmaps slice must be ordered from largest to smallest.
+// compress=false stores COPY blocks (no LZ4).
+func EncodeFromBlocksWithCompression(
+	w io.Writer,
+	format bcn.Format,
+	width, height int,
+	mipmaps [][]byte,
+	compress bool,
+) error {
+	compression, err := normalizeCompressionOptions(
+		CompressionOptions{Mode: compressionModeFromBool(compress)},
+		compress)
+	if err != nil {
+		return err
+	}
+
+	return NewEncoder().writeFromBlocks(w, format, width, height, mipmaps, compression)
+}
+
+// EncodeFromBlocksWithCompressionOptions writes an EDDS stream
+// from pre-encoded mip payloads.
+// The mipmaps slice must be ordered from largest to smallest.
+func EncodeFromBlocksWithCompressionOptions(
+	w io.Writer,
+	format bcn.Format,
+	width, height int,
+	mipmaps [][]byte,
+	compressionOpts CompressionOptions,
+) error {
+	compression, err := normalizeCompressionOptions(compressionOpts, true)
+	if err != nil {
+		return err
+	}
+
+	return NewEncoder().writeFromBlocks(w, format, width, height, mipmaps, compression)
+}
+
 // Encoder encodes EDDS streams while reusing internal buffers across calls.
 // An Encoder is NOT safe for concurrent use; create one per worker goroutine.
 type Encoder struct {
@@ -105,6 +156,57 @@ func (e *Encoder) Encode(w io.Writer, img image.Image) error {
 // EncodeWithOptions writes an EDDS stream with fully customizable options.
 func (e *Encoder) EncodeWithOptions(w io.Writer, img image.Image, opts *WriteOptions) error {
 	return e.writeWithOptions(w, img, opts)
+}
+
+// EncodeFromBlocks writes an EDDS stream from pre-encoded mip payloads.
+// The mipmaps slice must be ordered from largest to smallest.
+func (e *Encoder) EncodeFromBlocks(w io.Writer, format bcn.Format, width, height int, mipmaps [][]byte) error {
+	compression, err := normalizeCompressionOptions(
+		CompressionOptions{Mode: CompressionLZ4},
+		true)
+	if err != nil {
+		return err
+	}
+
+	return e.writeFromBlocks(w, format, width, height, mipmaps, compression)
+}
+
+// EncodeFromBlocksWithCompression writes an EDDS stream from pre-encoded mip payloads.
+// The mipmaps slice must be ordered from largest to smallest.
+// compress=false stores COPY blocks (no LZ4).
+func (e *Encoder) EncodeFromBlocksWithCompression(
+	w io.Writer,
+	format bcn.Format,
+	width, height int,
+	mipmaps [][]byte,
+	compress bool,
+) error {
+	compression, err := normalizeCompressionOptions(
+		CompressionOptions{Mode: compressionModeFromBool(compress)},
+		compress)
+	if err != nil {
+		return err
+	}
+
+	return e.writeFromBlocks(w, format, width, height, mipmaps, compression)
+}
+
+// EncodeFromBlocksWithCompressionOptions writes an EDDS stream
+// from pre-encoded mip payloads.
+// The mipmaps slice must be ordered from largest to smallest.
+func (e *Encoder) EncodeFromBlocksWithCompressionOptions(
+	w io.Writer,
+	format bcn.Format,
+	width, height int,
+	mipmaps [][]byte,
+	compressionOpts CompressionOptions,
+) error {
+	compression, err := normalizeCompressionOptions(compressionOpts, true)
+	if err != nil {
+		return err
+	}
+
+	return e.writeFromBlocks(w, format, width, height, mipmaps, compression)
 }
 
 // normalizeWriteOptions normalizes the write options.

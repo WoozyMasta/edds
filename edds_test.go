@@ -212,6 +212,45 @@ func TestWriteFromBlocksWithCompressionValidation(t *testing.T) {
 	}
 }
 
+func TestEncodeFromBlocksWithCompression(t *testing.T) {
+	t.Parallel()
+
+	img := image.NewNRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			img.Set(x, y, color.NRGBA{
+				R: uint8(x * 20), //nolint:gosec // bounded
+				G: uint8(y * 20), //nolint:gosec // bounded
+				B: 90,
+				A: 255,
+			})
+		}
+	}
+
+	payload, _, _, err := bcn.EncodeImageWithOptions(img, bcn.FormatBGRA8, nil)
+	if err != nil {
+		t.Fatalf("EncodeImageWithOptions: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := EncodeFromBlocksWithCompression(&buf, bcn.FormatBGRA8, 8, 8, [][]byte{payload}, false); err != nil {
+		t.Fatalf("EncodeFromBlocksWithCompression: %v", err)
+	}
+
+	got, err := Decode(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+
+	gotNRGBA, ok := got.(*image.NRGBA)
+	if !ok {
+		t.Fatalf("expected *image.NRGBA, got %T", got)
+	}
+	if !bytes.Equal(gotNRGBA.Pix, img.Pix) {
+		t.Fatalf("stream blocks round-trip pixel mismatch")
+	}
+}
+
 func TestDetectFormatTable(t *testing.T) {
 	t.Parallel()
 
