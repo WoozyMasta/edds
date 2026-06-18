@@ -4,17 +4,12 @@
 
 package edds
 
-import (
-	"fmt"
-
-	"github.com/woozymasta/bcn"
-)
+import "github.com/woozymasta/bcn"
 
 // detectFormat detects the format of a DDS/EDDS file.
-func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) (bcn.Format, string) {
+func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) bcn.Format {
 	if dx10 != nil {
-		format := mapDxgiFormat(dx10.DXGIFormat)
-		return format, fmt.Sprintf("DXGI %d", dx10.DXGIFormat)
+		return mapDxgiFormat(dx10.DXGIFormat)
 	}
 
 	pf := header.PixelFormat
@@ -23,17 +18,17 @@ func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) (bcn.Format, s
 		fourCCStr := intToFourCC(pf.FourCC)
 		switch fourCCStr {
 		case "DXT1":
-			return bcn.FormatDXT1, fourCCStr
+			return bcn.FormatDXT1
 		case "DXT2", "DXT3":
-			return bcn.FormatDXT3, fourCCStr
+			return bcn.FormatDXT3
 		case "DXT4", "DXT5":
-			return bcn.FormatDXT5, fourCCStr
+			return bcn.FormatDXT5
 		case "ATI1", "BC4U", "BC4S":
-			return bcn.FormatBC4, fourCCStr
+			return bcn.FormatBC4
 		case "ATI2", "BC5U", "BC5S":
-			return bcn.FormatBC5, fourCCStr
+			return bcn.FormatBC5
 		default:
-			return bcn.FormatUnknown, fourCCStr
+			return bcn.FormatUnknown
 		}
 	}
 
@@ -41,20 +36,20 @@ func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) (bcn.Format, s
 		if (pf.Flags&bcn.DDSPFAlphaPixels != 0) && pf.RGBBitCount == 32 {
 			if pf.RBitMask == 0x000000ff && pf.GBitMask == 0x0000ff00 &&
 				pf.BBitMask == 0x00ff0000 && pf.ABitMask == 0xff000000 {
-				return bcn.FormatRGBA8, "RGBA8"
+				return bcn.FormatRGBA8
 			}
 			if pf.RBitMask == 0x00ff0000 && pf.GBitMask == 0x0000ff00 &&
 				pf.BBitMask == 0x000000ff && pf.ABitMask == 0xff000000 {
-				return bcn.FormatBGRA8, "BGRA8"
+				return bcn.FormatBGRA8
 			}
 		}
 	}
 
 	if (pf.Flags&bcn.DDSPFLuminance) != 0 && pf.RGBBitCount == 8 {
-		return bcn.FormatRGBA8, "LUMINANCE8"
+		return bcn.FormatRGBA8
 	}
 
-	return bcn.FormatUnknown, "UNKNOWN"
+	return bcn.FormatUnknown
 }
 
 // mapDxgiFormat maps a DXGI format to a BCn format.

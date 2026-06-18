@@ -89,6 +89,17 @@ func readBlockTableInto(dst []blockHeader, r io.Reader, mipMapCount uint32) ([]b
 	return hdrs, nil
 }
 
+// readBlockTable reads block headers for all mipmaps.
+func readBlockTable(r io.Reader, mipMapCount uint32) ([]blockHeader, error) {
+	return readBlockTableInto(nil, r, mipMapCount)
+}
+
+// readBlockBody reads one block body using a block table header.
+func readBlockBody(r io.Reader, h blockHeader) (*Block, error) {
+	block, _, err := readBlockBodyInto(nil, r, h)
+	return block, err
+}
+
 // readBlockBodyInto reads one block body into a reusable buffer.
 func readBlockBodyInto(dst []byte, r io.Reader, h blockHeader) (*Block, []byte, error) {
 	if h.Size < 0 {

@@ -65,7 +65,36 @@ func ReadWithOptions(path string, opts *ReadOptions) (image.Image, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	return NewDecoder().DecodeWithOptions(f, opts)
+	header, dx10, err := readEDDSHeaders(f)
+	if err != nil {
+		return nil, err
+	}
+
+	format := detectFormat(header, dx10)
+
+	mipMapCount := uint32(1)
+	if (header.Caps&bcn.DDSCapsMipmap) != 0 && header.MipMapCount > 0 {
+		mipMapCount = header.MipMapCount
+	}
+
+	mipData, mipWidth, mipHeight, err := readLargestMipFromBlocks(f, header, format, mipMapCount)
+	if err != nil {
+		mipData, mipWidth, mipHeight, err = readLegacySingleBlock(f, header, dx10, format)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	decOpts := (*bcn.DecodeOptions)(nil)
+	if opts != nil {
+		decOpts = opts.DecodeOptions
+	}
+	rgbaData, err := bcn.DecodeImageWithOptions(mipData, mipWidth, mipHeight, format, decOpts)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrDecodeImage, err)
+	}
+
+	return rgbaData, nil
 }
 
 // Decoder decodes EDDS streams while reusing internal buffers across calls.
@@ -102,7 +131,7 @@ func (d *Decoder) DecodeWithOptions(r io.Reader, opts *ReadOptions) (image.Image
 		return nil, err
 	}
 
-	format, _ := detectFormat(header, dx10)
+	format := detectFormat(header, dx10)
 
 	mipMapCount := uint32(1)
 	if (header.Caps&bcn.DDSCapsMipmap) != 0 && header.MipMapCount > 0 {
@@ -128,6 +157,64 @@ func (d *Decoder) DecodeWithOptions(r io.Reader, opts *ReadOptions) (image.Image
 	d.img = rgbaData
 
 	return rgbaData, nil
+}
+
+// readLargestMipFromBlocks reads the largest mipmap from the blocks.
+func readLargestMipFromBlocks(
+	r io.ReadSeeker,
+	header *bcn.DDSHeader,
+	format bcn.Format,
+	mipMapCount uint32,
+) ([]byte, int, int, error) {
+	if mipMapCount == 0 {
+		mipMapCount = 1
+	}
+
+	table, err := readBlockTable(r, mipMapCount)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("%w: %v", ErrReadBlockTable, err)
+	}
+
+	// EDDS writes the block table and payloads from smallest to largest mip.
+	// The largest mip is therefore the last logical level and is selected here.
+	for i := uint32(0); i < mipMapCount; i++ {
+		mipLevel := mipMapCount - i - 1
+		if mipLevel != 0 {
+			if _, err := r.Seek(int64(table[i].Size), io.SeekCurrent); err != nil {
+				return nil, 0, 0, fmt.Errorf("%w: mipmap %d: %v", ErrSkipBlockBody, i, err)
+			}
+			continue
+		}
+
+		block, err := readBlockBody(r, table[i])
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("%w: mipmap %d: %v", ErrReadBlockBody, i, err)
+		}
+
+		mipW := mipDimension(int(header.Width), int(mipLevel))
+		mipH := mipDimension(int(header.Height), int(mipLevel))
+
+		expectedSize := expectedDataLength(format, mipW, mipH)
+		if expectedSize <= 0 {
+			return nil, 0, 0, fmt.Errorf("%w: %s for mipmap %d", ErrUnknownFormat, format, i)
+		}
+
+		decompressed, err := decompressBlock(block, expectedSize)
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("%w: mipmap %d: %v", ErrDecompressBlock, i, err)
+		}
+		if len(decompressed) != expectedSize {
+			return nil, 0, 0, fmt.Errorf(
+				"%w: expected %d, got %d",
+				ErrLargestMipSizeMismatch,
+				expectedSize,
+				len(decompressed))
+		}
+
+		return decompressed, mipW, mipH, nil
+	}
+
+	return nil, 0, 0, fmt.Errorf("%w: mipmaps=%d", ErrPickLargestMip, mipMapCount)
 }
 
 // readLargestMipFromBlocksInto reads the largest mipmap using Decoder-owned buffers.
@@ -200,6 +287,52 @@ func (d *Decoder) readLargestMipFromBlocks(
 	mipMapCount uint32,
 ) ([]byte, int, int, error) {
 	return d.readLargestMipFromBlocksInto(r, header, format, mipMapCount)
+}
+
+// readLegacySingleBlock is a backward-compatibility fallback for older EDDS files.
+// Some legacy files do not have a valid block table after the DDS header
+// and instead store a single payload blob.
+func readLegacySingleBlock(
+	r io.ReadSeeker,
+	header *bcn.DDSHeader,
+	dx10 *bcn.DDSHeaderDX10,
+	format bcn.Format,
+) ([]byte, int, int, error) {
+	headerSize := int64(4 + bcn.DDSHeaderSize)
+	if dx10 != nil {
+		headerSize += 20
+	}
+	if _, err := r.Seek(headerSize, io.SeekStart); err != nil {
+		return nil, 0, 0, fmt.Errorf("%w: %v", ErrSeekDataStart, err)
+	}
+
+	remainingData, err := io.ReadAll(r)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("%w: %v", ErrReadRemainingData, err)
+	}
+
+	expectedSize := expectedDataLength(format, int(header.Width), int(header.Height))
+	if expectedSize <= 0 {
+		return nil, 0, 0, fmt.Errorf("%w: %s", ErrUnknownFormat, format)
+	}
+
+	size, err := i32FromInt(len(remainingData))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	block := &Block{Magic: BlockMagicLZ4, Size: size, Data: remainingData}
+	decompressed, err := decompressBlock(block, expectedSize)
+	if err == nil {
+		return decompressed, int(header.Width), int(header.Height), nil
+	}
+
+	if len(remainingData) == expectedSize {
+		// Older uncompressed files may contain only raw mip payload after DDS headers.
+		return remainingData, int(header.Width), int(header.Height), nil
+	}
+
+	return nil, 0, 0, fmt.Errorf("%w: %v", ErrParseSingleBlock, err)
 }
 
 // readLegacySingleBlock reads old EDDS payloads

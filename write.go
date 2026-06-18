@@ -69,13 +69,7 @@ func WriteWithFormatAndCompression(img image.Image, path string, format bcn.Form
 // WriteWithOptions writes EDDS with fully customizable options.
 // Nil opts uses defaults: BGRA8, full mip chain, LZ4 compression.
 func WriteWithOptions(img image.Image, path string, opts *WriteOptions) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("%w: %q: %v", ErrCreateFile, path, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	return NewEncoder().EncodeWithOptions(f, img, opts)
+	return writeWithOptions(img, path, opts)
 }
 
 // Encode writes an EDDS stream with default options.
@@ -192,13 +186,40 @@ func writeWithOptions(
 	path string,
 	opts *WriteOptions,
 ) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("%w: %q: %v", ErrCreateFile, path, err)
-	}
-	defer func() { _ = f.Close() }()
+	cfg := normalizeWriteOptions(opts)
 
-	return NewEncoder().writeWithOptions(f, img, opts)
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	mipMapCount, err := calculateMipMapCount(width, height)
+	if err != nil {
+		return err
+	}
+	if cfg.MaxMipMaps > 0 && cfg.MaxMipMaps < mipMapCount {
+		mipMapCount = cfg.MaxMipMaps
+	}
+	if mipMapCount < 1 {
+		mipMapCount = 1
+	}
+
+	mips := bcn.GenerateMipmapsN(img, mipMapCount, false)
+
+	payloads := make([][]byte, len(mips))
+	for i, mip := range mips {
+		data, _, _, err := bcn.EncodeImageWithOptions(mip, cfg.Format, cfg.EncodeOptions)
+		if err != nil {
+			return fmt.Errorf("%w: mipmap %d: %v", ErrCompressMipmap, i, err)
+		}
+		payloads[i] = data
+	}
+
+	compression, err := normalizeCompressionOptions(cfg.Compression, cfg.Compress)
+	if err != nil {
+		return err
+	}
+
+	return writeFromBlocks(path, cfg.Format, width, height, payloads, compression)
 }
 
 // writeWithOptions writes img to w using Encoder-owned reusable buffers.
@@ -253,23 +274,6 @@ func writeFromBlocks(
 	mipmaps [][]byte,
 	compression normalizedCompressionOptions,
 ) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("%w: %q: %v", ErrCreateFile, path, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	return NewEncoder().writeFromBlocks(f, format, width, height, mipmaps, compression)
-}
-
-// writeFromBlocks validates pre-encoded mipmaps and writes an EDDS stream.
-func (e *Encoder) writeFromBlocks(
-	w io.Writer,
-	format bcn.Format,
-	width, height int,
-	mipmaps [][]byte,
-	compression normalizedCompressionOptions,
-) error {
 	if len(mipmaps) == 0 {
 		return ErrEmptyMipmaps
 	}
@@ -292,6 +296,101 @@ func (e *Encoder) writeFromBlocks(
 	}
 
 	// create DDS header
+	header, err := makeDDSHeader(w32, h32, mip32, format)
+	if err != nil {
+		return err
+	}
+
+	// Build all block descriptors before opening the output file because the table precedes payload data.
+	blocks := make([]*Block, len(mipmaps))
+	for i, mip := range mipmaps {
+		mipW := mipDimension(width, i)
+		mipH := mipDimension(height, i)
+		expected := expectedDataLength(format, mipW, mipH)
+		if expected <= 0 {
+			return ErrInvalidFormat
+		}
+		if len(mip) != expected {
+			return fmt.Errorf("%w: mipmap %d: expected %d, got %d", ErrMipmapSizeMismatch, i, expected, len(mip))
+		}
+
+		if compression.mode != CompressionNone {
+			block, err := compressBlockWithOptions(mip, compression)
+			if err != nil {
+				return fmt.Errorf("%w: mipmap %d: %v", ErrCompressMipmap, i, err)
+			}
+			blocks[i] = block
+		} else {
+			size, err := i32FromInt(len(mip))
+			if err != nil {
+				return err
+			}
+			blocks[i] = &Block{Magic: BlockMagicCOPY, Size: size, Data: mip}
+		}
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("%w: %q: %v", ErrCreateFile, path, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if err := bcn.WriteDDSMagic(f); err != nil {
+		return fmt.Errorf("%w: %v", ErrWriteDDSMagic, err)
+	}
+	if err := bcn.WriteDDSHeader(f, header); err != nil {
+		return fmt.Errorf("%w: %v", ErrWriteDDSHeader, err)
+	}
+
+	// EDDS stores mip table entries from smallest to largest mip.
+	for i, v := range slices.Backward(blocks) {
+		block := v
+		if _, err := f.Write([]byte(block.Magic)); err != nil {
+			return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockMagic, i, err)
+		}
+		if err := binary.Write(f, binary.LittleEndian, block.Size); err != nil {
+			return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockSize, i, err)
+		}
+	}
+
+	// Payload order mirrors the table order.
+	for i, v := range slices.Backward(blocks) {
+		if err := writeBlockData(f, v); err != nil {
+			return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockData, i, err)
+		}
+	}
+
+	return nil
+}
+
+// writeFromBlocks validates pre-encoded mipmaps and writes an EDDS stream.
+func (e *Encoder) writeFromBlocks(
+	w io.Writer,
+	format bcn.Format,
+	width, height int,
+	mipmaps [][]byte,
+	compression normalizedCompressionOptions,
+) error {
+	if len(mipmaps) == 0 {
+		return ErrEmptyMipmaps
+	}
+	if format == bcn.FormatUnknown {
+		return ErrInvalidFormat
+	}
+
+	w32, err := u32FromInt(width)
+	if err != nil {
+		return err
+	}
+	h32, err := u32FromInt(height)
+	if err != nil {
+		return err
+	}
+	mip32, err := u32FromInt(len(mipmaps))
+	if err != nil {
+		return err
+	}
+
 	header, err := makeDDSHeader(w32, h32, mip32, format)
 	if err != nil {
 		return err

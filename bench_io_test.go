@@ -137,10 +137,9 @@ func benchStoredPayloadBytes(b *testing.B, payloads [][]byte, compressionOpts Co
 		b.Fatalf("normalize compression %s: %v", compressionOpts.Mode, err)
 	}
 
-	var compressor blockCompressor
 	var total int64
 	for i, payload := range payloads {
-		block, _, err := compressor.compressBlock(nil, payload, compression)
+		block, err := compressBlockWithOptions(payload, compression)
 		if err != nil {
 			b.Fatalf("compress mipmap %d with %s: %v", i, compressionOpts.Mode, err)
 		}
@@ -229,10 +228,9 @@ func BenchmarkStageCompressBlocksDXT5(b *testing.B) {
 			b.SetBytes(payloadBytes)
 			b.ResetTimer()
 
-			var compressor blockCompressor
 			for b.Loop() {
 				for i, payload := range payloads {
-					if _, _, err := compressor.compressBlock(nil, payload, compression); err != nil {
+					if _, err := compressBlockWithOptions(payload, compression); err != nil {
 						b.Fatalf("compress mipmap %d with %s: %v", i, tc.name, err)
 					}
 				}

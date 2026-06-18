@@ -170,6 +170,96 @@ func copyBlock(data []byte) (*Block, error) {
 	return &Block{Magic: BlockMagicCOPY, Size: uncompressedSize, Data: data}, nil
 }
 
+// compressBlockWithOptions compresses raw data according to normalized options.
+func compressBlockWithOptions(data []byte, opts normalizedCompressionOptions) (*Block, error) {
+	if !opts.mode.isValid() {
+		return nil, ErrInvalidCompressionOptions
+	}
+
+	if opts.mode == CompressionNone {
+		return copyBlock(data)
+	}
+	if len(data) > maxInt32 {
+		return nil, fmt.Errorf("%w: %d bytes", ErrInputTooLarge, len(data))
+	}
+
+	uncompressedSize, err := i32FromInt(len(data))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) < 1024 {
+		return copyBlock(data)
+	}
+
+	compressedData := make([]byte, 0, compressedStreamCapacity(len(data), opts.chunkSize, opts.minRatio))
+	maxCompressedSize := lz4.CompressBlockBound(opts.chunkSize)
+	compressBuf := make([]byte, maxCompressedSize)
+	var fastCompressor lz4.Compressor
+	var hcCompressor *lz4.CompressorHC
+	if opts.mode == CompressionLZ4HC && opts.hcLevel != 0 {
+		hcCompressor = &lz4.CompressorHC{Level: opts.hcLevel}
+	}
+
+	for i := 0; i < len(data); i += opts.chunkSize {
+		end := min(i+opts.chunkSize, len(data))
+		srcChunk := data[i:end]
+		isLast := end == len(data)
+
+		var cn int
+		var err error
+		switch opts.mode {
+		case CompressionLZ4:
+			cn, err = fastCompressor.CompressBlock(srcChunk, compressBuf)
+		case CompressionLZ4HC:
+			if hcCompressor != nil {
+				cn, err = hcCompressor.CompressBlock(srcChunk, compressBuf)
+			} else {
+				cn, err = lz4.CompressBlockHC(srcChunk, compressBuf, 0, nil, nil)
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrLZ4Compress, err)
+		}
+
+		if cn == 0 || float64(len(srcChunk))/float64(cn) < opts.minRatio {
+			return copyBlock(data)
+		}
+		if cn > 0x7FFFFF {
+			return nil, fmt.Errorf("%w: %d", ErrChunkTooLarge, cn)
+		}
+
+		// EDDS stores each LZ4 chunk as a 24-bit compressed size plus flags.
+		compressedData = append(compressedData, byte(cn), byte(cn>>8), byte(cn>>16))
+		if isLast {
+			compressedData = append(compressedData, 0x80)
+		} else {
+			compressedData = append(compressedData, 0x00)
+		}
+		compressedData = append(compressedData, compressBuf[:cn]...)
+	}
+
+	totalOverhead := 4 + len(compressedData)
+	if totalOverhead > maxInt32 {
+		return nil, fmt.Errorf("%w: %d bytes", ErrCompressedDataTooLarge, totalOverhead)
+	}
+
+	if float64(len(data))/float64(totalOverhead) < opts.minRatio {
+		return copyBlock(data)
+	}
+
+	size, err := i32FromInt(totalOverhead)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Block{
+		Magic:            BlockMagicLZ4,
+		Size:             size,
+		UncompressedSize: uncompressedSize,
+		Data:             compressedData,
+	}, nil
+}
+
 // blockCompressor keeps temporary LZ4 buffers for repeated block compression.
 type blockCompressor struct {
 	compressBuf []byte
@@ -302,6 +392,12 @@ func compressedStreamCapacity(dataLen, chunkSize int, minRatio float64) int {
 // blockDecompressor keeps the rolling LZ4 dictionary for repeated block decompression.
 type blockDecompressor struct {
 	dict []byte
+}
+
+// decompressBlock inflates an EDDS block into raw data.
+func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error) {
+	var d blockDecompressor
+	return d.decompressBlock(nil, block, expectedUncompressedSize)
 }
 
 // decompressBlock inflates block into dst when possible

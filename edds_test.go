@@ -267,7 +267,7 @@ func TestDetectFormatTable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, _ := detectFormat(tc.header, tc.dx10)
+			got := detectFormat(tc.header, tc.dx10)
 			if got != tc.want {
 				t.Fatalf("detectFormat() = %v, want %v", got, tc.want)
 			}
