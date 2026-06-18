@@ -1,12 +1,11 @@
 package edds
 
 import (
-	"os"
-	"path/filepath"
+	"bytes"
 	"testing"
 )
 
-func FuzzReadConfig(f *testing.F) {
+func FuzzReadEDDSHeaders(f *testing.F) {
 	f.Add([]byte{})
 	f.Add([]byte("DDS "))
 	f.Add([]byte{
@@ -19,12 +18,7 @@ func FuzzReadConfig(f *testing.F) {
 			t.Skip()
 		}
 
-		path := filepath.Join(t.TempDir(), "input.edds")
-		if err := os.WriteFile(path, data, 0o600); err != nil {
-			t.Fatalf("write fuzz input: %v", err)
-		}
-
-		_, _ = ReadConfig(path)
+		_, _, _ = readEDDSHeaders(bytes.NewReader(data))
 	})
 }
 
