@@ -69,10 +69,7 @@ func benchMainFlowPayloads(
 ) [][]byte {
 	b.Helper()
 
-	mips := bcn.GenerateMipmaps(img, false)
-	if maxMipMaps > 0 && len(mips) > maxMipMaps {
-		mips = mips[:maxMipMaps]
-	}
+	mips := bcn.GenerateMipmapsN(img, maxMipMaps, false)
 
 	payloads := make([][]byte, len(mips))
 	for i, mip := range mips {
@@ -152,7 +149,7 @@ func BenchmarkStageGenerateMipmaps(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		mips := bcn.GenerateMipmaps(img, false)
+		mips := bcn.GenerateMipmapsN(img, 0, false)
 		if len(mips) == 0 {
 			b.Fatal("generate mipmaps: empty result")
 		}
@@ -162,11 +159,7 @@ func BenchmarkStageGenerateMipmaps(b *testing.B) {
 func BenchmarkStageEncodeMipChainDXT5(b *testing.B) {
 	img := benchMainFlowImage(1024, 1024)
 	opts := benchMainFlowWriteOptionsDXT5()
-	mips := bcn.GenerateMipmaps(img, false)
-
-	if opts.MaxMipMaps > 0 && len(mips) > opts.MaxMipMaps {
-		mips = mips[:opts.MaxMipMaps]
-	}
+	mips := bcn.GenerateMipmapsN(img, opts.MaxMipMaps, false)
 
 	b.ReportAllocs()
 	b.SetBytes(benchImageBytes(mips))

@@ -167,10 +167,7 @@ func writeWithOptions(
 		mipMapCount = 1
 	}
 
-	mips := bcn.GenerateMipmaps(img, false)
-	if len(mips) > mipMapCount {
-		mips = mips[:mipMapCount]
-	}
+	mips := bcn.GenerateMipmapsN(img, mipMapCount, false)
 
 	payloads := make([][]byte, len(mips))
 	for i, mip := range mips {
