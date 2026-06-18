@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
-## Unreleased
+## [0.2.0][] - 2026-06-18
 
 ### Added
 
@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning][].
   `BenchmarkContainerWriteFromBlocksDXT5/LZ4`: about 65% faster.
 * Updated dependency `github.com/woozymasta/bcn` to `v0.4.0`
   and switched mipmap generation to `GenerateMipmapsN`.
+
+[0.2.0]: https://github.com/WoozyMasta/edds/compare/v0.1.3...v0.2.0
 
 ## [0.1.3][] - 2026-02-17
 
