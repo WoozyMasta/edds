@@ -41,7 +41,7 @@ bench-reset:
 .PHONY: fuzz
 
 fuzz:
-	$(GO) test -run='^$$' -fuzz='^FuzzReadConfig$$' -fuzztime=$(FUZZ_TIME) .
+	$(GO) test -run='^$$' -fuzz='^FuzzReadEDDSHeaders$$' -fuzztime=$(FUZZ_TIME) .
 	$(GO) test -run='^$$' -fuzz='^FuzzDecompressBlock$$' -fuzztime=$(FUZZ_TIME) .
 
 .PHONY: download verify vet tidy tidy-check fmt fmt-check vulncheck lint lint-fix align align-fix
