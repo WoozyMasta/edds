@@ -19,6 +19,7 @@ func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) (bcn.Format, s
 
 	pf := header.PixelFormat
 	if (pf.Flags & bcn.DDSPFFourCC) != 0 {
+		// Prefer FourCC before RGB masks; compressed DDS variants do not carry useful masks.
 		fourCCStr := intToFourCC(pf.FourCC)
 		switch fourCCStr {
 		case "DXT1":
@@ -120,7 +121,7 @@ func enfusionReserved1() [11]uint32 {
 
 // makeDDSHeader creates a DDS header for a given format and dimensions.
 func makeDDSHeader(width, height, mipMapCount uint32, format bcn.Format) (*bcn.DDSHeader, error) {
-	// set flags and caps
+	// Set only the caps/flags used by Enfusion readers; extra DDS fields stay zeroed.
 	flags := uint32(bcn.DDSFlagCaps | bcn.DDSFlagHeight | bcn.DDSFlagWidth | bcn.DDSFlagPixelFormat)
 	caps := uint32(bcn.DDSCapsTexture)
 	if mipMapCount > 1 {
@@ -128,7 +129,6 @@ func makeDDSHeader(width, height, mipMapCount uint32, format bcn.Format) (*bcn.D
 		caps |= bcn.DDSCapsComplex | bcn.DDSCapsMipmap
 	}
 
-	// create DDS header
 	hdr := &bcn.DDSHeader{
 		Size:        bcn.DDSHeaderSize,
 		Flags:       flags,
@@ -141,7 +141,7 @@ func makeDDSHeader(width, height, mipMapCount uint32, format bcn.Format) (*bcn.D
 	}
 	hdr.PixelFormat.Size = bcn.DDSPixelFormatSize
 
-	// set pixel format
+	// Keep legacy FourCC headers for BCn formats; EDDS does not need DX10 headers here.
 	switch format {
 	case bcn.FormatDXT1:
 		hdr.Flags |= bcn.DDSFlagLinearSize

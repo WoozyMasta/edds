@@ -105,6 +105,46 @@ func TestWriteRead(t *testing.T) {
 	}
 }
 
+func TestStreamEncodeDecode(t *testing.T) {
+	t.Parallel()
+
+	img := image.NewNRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			img.Set(x, y, color.NRGBA{
+				R: uint8(x * 20), //nolint:gosec // bounded
+				G: uint8(y * 20), //nolint:gosec // bounded
+				B: 80,
+				A: 255,
+			})
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := EncodeWithOptions(&buf, img, &WriteOptions{
+		Format:     bcn.FormatBGRA8,
+		MaxMipMaps: 1,
+		Compression: CompressionOptions{
+			Mode: CompressionNone,
+		},
+	}); err != nil {
+		t.Fatalf("EncodeWithOptions: %v", err)
+	}
+
+	got, err := Decode(bytes.NewBuffer(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+
+	gotNRGBA, ok := got.(*image.NRGBA)
+	if !ok {
+		t.Fatalf("expected *image.NRGBA, got %T", got)
+	}
+	if !bytes.Equal(gotNRGBA.Pix, img.Pix) {
+		t.Fatalf("stream round-trip pixel mismatch")
+	}
+}
+
 func TestWriteWithFormatAndOptions(t *testing.T) {
 	img := image.NewNRGBA(image.Rect(0, 0, 16, 16))
 	for y := 0; y < 16; y++ {

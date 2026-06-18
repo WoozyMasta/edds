@@ -1,6 +1,7 @@
 package edds
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"path/filepath"
@@ -14,6 +15,7 @@ const (
 	benchImageHeight = 1024
 )
 
+// benchCompressionCase names one compression mode used by benchmark matrices.
 type benchCompressionCase struct {
 	name string
 	opts CompressionOptions
@@ -283,6 +285,24 @@ func BenchmarkMainFlowWriteDXT5(b *testing.B) {
 	}
 }
 
+func BenchmarkMainFlowEncodeDXT5Reuse(b *testing.B) {
+	img := benchImage(benchImageWidth, benchImageHeight)
+	opts := benchWriteOptionsDXT5()
+	enc := NewEncoder()
+	var buf bytes.Buffer
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(img.Pix)))
+	b.ResetTimer()
+
+	for b.Loop() {
+		buf.Reset()
+		if err := enc.EncodeWithOptions(&buf, img, &opts); err != nil {
+			b.Fatalf("encode: %v", err)
+		}
+	}
+}
+
 func BenchmarkMainFlowWriteBGRA8(b *testing.B) {
 	img := benchImage(benchImageWidth, benchImageHeight)
 	path := filepath.Join(b.TempDir(), "main_flow_write_bgra8.edds")
@@ -311,6 +331,27 @@ func BenchmarkMainFlowReadDXT5(b *testing.B) {
 	for b.Loop() {
 		if _, err := Read(path); err != nil {
 			b.Fatalf("read: %v", err)
+		}
+	}
+}
+
+func BenchmarkMainFlowDecodeDXT5Reuse(b *testing.B) {
+	img := benchImage(benchImageWidth, benchImageHeight)
+	opts := benchWriteOptionsDXT5()
+	var buf bytes.Buffer
+	if err := EncodeWithOptions(&buf, img, &opts); err != nil {
+		b.Fatalf("prepare input: %v", err)
+	}
+	data := buf.Bytes()
+	dec := NewDecoder()
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(img.Pix)))
+	b.ResetTimer()
+
+	for b.Loop() {
+		if _, err := dec.Decode(bytes.NewReader(data)); err != nil {
+			b.Fatalf("decode: %v", err)
 		}
 	}
 }

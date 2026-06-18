@@ -172,28 +172,52 @@ func copyBlock(data []byte) (*Block, error) {
 
 // compressBlockWithOptions compresses raw data according to normalized options.
 func compressBlockWithOptions(data []byte, opts normalizedCompressionOptions) (*Block, error) {
+	var c blockCompressor
+	block, _, err := c.compressBlock(nil, data, opts)
+	return block, err
+}
+
+// blockCompressor keeps temporary LZ4 buffers for repeated block compression.
+type blockCompressor struct {
+	compressBuf []byte
+}
+
+// compressBlock compresses raw data into dst when possible
+// and returns the retained output buffer.
+func (c *blockCompressor) compressBlock(dst []byte, data []byte, opts normalizedCompressionOptions) (*Block, []byte, error) {
 	if !opts.mode.isValid() {
-		return nil, ErrInvalidCompressionOptions
+		return nil, dst, ErrInvalidCompressionOptions
 	}
 
 	if opts.mode == CompressionNone {
-		return copyBlock(data)
+		block, err := copyBlock(data)
+		return block, dst, err
 	}
 	if len(data) > maxInt32 {
-		return nil, fmt.Errorf("%w: %d bytes", ErrInputTooLarge, len(data))
+		return nil, dst, fmt.Errorf("%w: %d bytes", ErrInputTooLarge, len(data))
 	}
 
 	uncompressedSize, err := i32FromInt(len(data))
 	if err != nil {
-		return nil, err
+		return nil, dst, err
 	}
 	if len(data) < 1024 {
-		return copyBlock(data)
+		block, err := copyBlock(data)
+		return block, dst, err
 	}
 
-	compressedData := make([]byte, 0, compressedStreamCapacity(len(data), opts.chunkSize, opts.minRatio))
+	// Reserve for the expected stream size, not the LZ4 upper bound.
+	// If compression later fails the ratio check, dst is retained for reuse.
+	if cap(dst) < compressedStreamCapacity(len(data), opts.chunkSize, opts.minRatio) {
+		dst = make([]byte, 0, compressedStreamCapacity(len(data), opts.chunkSize, opts.minRatio))
+	} else {
+		dst = dst[:0]
+	}
 	maxCompressedSize := lz4.CompressBlockBound(opts.chunkSize)
-	compressBuf := make([]byte, maxCompressedSize)
+	if cap(c.compressBuf) < maxCompressedSize {
+		c.compressBuf = make([]byte, maxCompressedSize)
+	}
+	compressBuf := c.compressBuf[:maxCompressedSize]
 	var fastCompressor lz4.Compressor
 	var hcCompressor *lz4.CompressorHC
 	if opts.mode == CompressionLZ4HC && opts.hcLevel != 0 {
@@ -218,45 +242,48 @@ func compressBlockWithOptions(data []byte, opts normalizedCompressionOptions) (*
 			}
 		}
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrLZ4Compress, err)
+			return nil, dst, fmt.Errorf("%w: %v", ErrLZ4Compress, err)
 		}
 
 		if cn == 0 || float64(len(srcChunk))/float64(cn) < opts.minRatio {
-			return copyBlock(data)
+			block, err := copyBlock(data)
+			return block, dst, err
 		}
 		if cn > 0x7FFFFF {
-			return nil, fmt.Errorf("%w: %d", ErrChunkTooLarge, cn)
+			return nil, dst, fmt.Errorf("%w: %d", ErrChunkTooLarge, cn)
 		}
 
-		compressedData = append(compressedData, byte(cn), byte(cn>>8), byte(cn>>16))
+		// EDDS stores each LZ4 chunk as a 24-bit compressed size plus flags.
+		dst = append(dst, byte(cn), byte(cn>>8), byte(cn>>16))
 		if isLast {
-			compressedData = append(compressedData, 0x80)
+			dst = append(dst, 0x80)
 		} else {
-			compressedData = append(compressedData, 0x00)
+			dst = append(dst, 0x00)
 		}
-		compressedData = append(compressedData, compressBuf[:cn]...)
+		dst = append(dst, compressBuf[:cn]...)
 	}
 
-	totalOverhead := 4 + len(compressedData)
+	totalOverhead := 4 + len(dst)
 	if totalOverhead > maxInt32 {
-		return nil, fmt.Errorf("%w: %d bytes", ErrCompressedDataTooLarge, totalOverhead)
+		return nil, dst, fmt.Errorf("%w: %d bytes", ErrCompressedDataTooLarge, totalOverhead)
 	}
 
 	if float64(len(data))/float64(totalOverhead) < opts.minRatio {
-		return copyBlock(data)
+		block, err := copyBlock(data)
+		return block, dst, err
 	}
 
 	size, err := i32FromInt(totalOverhead)
 	if err != nil {
-		return nil, err
+		return nil, dst, err
 	}
 
 	return &Block{
 		Magic:            BlockMagicLZ4,
 		Size:             size,
 		UncompressedSize: uncompressedSize,
-		Data:             compressedData,
-	}, nil
+		Data:             dst,
+	}, dst, nil
 }
 
 // compressedStreamCapacity estimates the final LZ4 chunk-stream size.
@@ -281,11 +308,23 @@ func compressedStreamCapacity(dataLen, chunkSize int, minRatio float64) int {
 
 // decompressBlock inflates an EDDS block into raw data.
 func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error) {
+	var d blockDecompressor
+	return d.decompressBlock(nil, block, expectedUncompressedSize)
+}
+
+// blockDecompressor keeps the rolling LZ4 dictionary for repeated block decompression.
+type blockDecompressor struct {
+	dict []byte
+}
+
+// decompressBlock inflates block into dst when possible
+// and preserves the LZ4 dictionary buffer.
+func (d *blockDecompressor) decompressBlock(dst []byte, block *Block, expectedUncompressedSize int) ([]byte, error) {
 	if block.Magic == BlockMagicCOPY {
 		if len(block.Data) != expectedUncompressedSize {
 			return nil, fmt.Errorf("%w: expected %d, got %d", ErrCopySizeMismatch, expectedUncompressedSize, len(block.Data))
 		}
-		out := make([]byte, len(block.Data))
+		out := ensureLen(dst, len(block.Data))
 		copy(out, block.Data)
 		return out, nil
 	}
@@ -306,6 +345,8 @@ func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error)
 	if len(data) >= 8 {
 		peek := int(binary.LittleEndian.Uint32(data[:4]))
 		c0 := int(data[4]) | (int(data[5]) << 8) | (int(data[6]) << 16)
+		// Some legacy writers include the uncompressed size in the block payload.
+		// New files keep it outside Block.Data via writeBlockData.
 		if (peek == expectedUncompressedSize || peek == targetSize) && c0 > 0 && c0 < (1<<20) {
 			targetSize = peek
 			data = data[4:]
@@ -313,10 +354,13 @@ func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error)
 	}
 
 	const dictCap = 64 * 1024
-	dict := make([]byte, dictCap)
+	if cap(d.dict) < dictCap {
+		d.dict = make([]byte, dictCap)
+	}
+	dict := d.dict[:dictCap]
 	dictSize := 0
 
-	target := make([]byte, targetSize)
+	target := ensureLen(dst, targetSize)
 	outIdx := 0
 
 	r := bytes.NewReader(data)
@@ -359,6 +403,7 @@ func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error)
 		outIdx += n
 
 		decoded := target[outIdx-n : outIdx]
+		// LZ4 block mode uses the previous 64 KiB of decoded bytes as dictionary.
 		if len(decoded) >= dictCap {
 			copy(dict, decoded[len(decoded)-dictCap:])
 			dictSize = dictCap
@@ -388,4 +433,13 @@ func decompressBlock(block *Block, expectedUncompressedSize int) ([]byte, error)
 	}
 
 	return target, nil
+}
+
+// ensureLen returns b resized to n, allocating only when capacity is insufficient.
+func ensureLen(b []byte, n int) []byte {
+	if cap(b) < n {
+		return make([]byte, n)
+	}
+
+	return b[:n]
 }

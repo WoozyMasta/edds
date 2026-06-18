@@ -53,14 +53,28 @@ func writeBlockData(w io.Writer, block *Block) error {
 
 // readBlockTable reads block headers for all mipmaps.
 func readBlockTable(r io.Reader, mipMapCount uint32) ([]blockHeader, error) {
-	hdrs := make([]blockHeader, 0, mipMapCount)
+	return readBlockTableInto(nil, r, mipMapCount)
+}
+
+// readBlockTableInto reads block headers into a reusable slice.
+func readBlockTableInto(dst []blockHeader, r io.Reader, mipMapCount uint32) ([]blockHeader, error) {
+	hdrs := ensureBlockHeaderSlots(dst, int(mipMapCount))[:0]
 	for i := range mipMapCount {
-		magicBytes := make([]byte, 4)
-		if _, err := io.ReadFull(r, magicBytes); err != nil {
+		var magicBytes [4]byte
+		if _, err := io.ReadFull(r, magicBytes[:]); err != nil {
 			return nil, fmt.Errorf("%w: %d: %v", ErrBlockTableMagicRead, i, err)
 		}
 
-		magic := string(magicBytes)
+		var magic string
+		switch magicBytes {
+		case [4]byte{'C', 'O', 'P', 'Y'}:
+			magic = BlockMagicCOPY
+		case [4]byte{'L', 'Z', '4', ' '}:
+			magic = BlockMagicLZ4
+		default:
+			// Keep the original bytes in the error path without allocating for known magic values.
+			magic = string(magicBytes[:])
+		}
 		var size int32
 		if err := binary.Read(r, binary.LittleEndian, &size); err != nil {
 			return nil, fmt.Errorf("%w: %d: %v", ErrBlockTableSizeRead, i, err)
@@ -80,16 +94,27 @@ func readBlockTable(r io.Reader, mipMapCount uint32) ([]blockHeader, error) {
 	return hdrs, nil
 }
 
-// readBlockBody reads one block body using a block table header.
-func readBlockBody(r io.Reader, h blockHeader) (*Block, error) {
+// readBlockBodyInto reads one block body into a reusable buffer.
+func readBlockBodyInto(dst []byte, r io.Reader, h blockHeader) (*Block, []byte, error) {
 	if h.Size < 0 {
-		return nil, fmt.Errorf("%w: %d", ErrBlockBodyInvalidSize, h.Size)
+		return nil, dst, fmt.Errorf("%w: %d", ErrBlockBodyInvalidSize, h.Size)
 	}
 
-	data := make([]byte, h.Size)
+	data := ensureLen(dst, int(h.Size))
 	if _, err := io.ReadFull(r, data); err != nil {
-		return nil, fmt.Errorf("%w: %s: %v", ErrBlockBodyRead, h.Magic, err)
+		return nil, data, fmt.Errorf("%w: %s: %v", ErrBlockBodyRead, h.Magic, err)
 	}
 
-	return &Block{Magic: h.Magic, Size: h.Size, Data: data}, nil
+	return &Block{Magic: h.Magic, Size: h.Size, Data: data}, data, nil
+}
+
+// ensureBlockHeaderSlots returns slots resized to n, allocating only when capacity is insufficient.
+func ensureBlockHeaderSlots(slots []blockHeader, n int) []blockHeader {
+	if cap(slots) < n {
+		next := make([]blockHeader, n)
+		copy(next, slots)
+		return next
+	}
+
+	return slots[:n]
 }
