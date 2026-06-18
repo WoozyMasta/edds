@@ -9,6 +9,8 @@ supports COPY/LZ4 blocks, and decodes the largest mipmap into RGBA.
 
 * EDDS read (config + decode largest mip)
 * EDDS write (RGBA/BGRA and BC1/BC2/BC3, optional mipmaps)
+* Stream-oriented encode/decode APIs for `io.Reader` / `io.Writer`
+* Reusable `Encoder` / `Decoder` for batch pipelines
 * Optional passthrough of `bcn.EncodeOptions` (quality/workers/etc.)
 * LZ4 Enfusion chunk-stream compress/decompress (COPY/LZ4 blocks)
 * DDS header interop via `github.com/woozymasta/bcn`
@@ -83,6 +85,50 @@ if err != nil {
   /* handle */
 }
 ```
+
+### Stream encode/decode
+
+```go
+var buf bytes.Buffer
+
+if err := edds.Encode(&buf, img); err != nil {
+  /* handle */
+}
+
+decoded, err := edds.Decode(bytes.NewReader(buf.Bytes()))
+if err != nil {
+  /* handle */
+}
+_ = decoded
+```
+
+Pre-encoded mip payloads can be written to any `io.Writer`:
+
+```go
+err := edds.EncodeFromBlocks(&buf, bcn.FormatDXT5, width, height, mipPayloads)
+if err != nil {
+  /* handle */
+}
+```
+
+### Batch encode/decode
+
+Use one `Encoder` or `Decoder` per worker goroutine to reuse internal buffers:
+
+```go
+enc := edds.NewEncoder()
+dec := edds.NewDecoder()
+
+_ = enc.Encode(w, img)
+decoded, err := dec.Decode(r)
+_ = decoded
+_ = err
+```
+
+`Encoder` and `Decoder` are not safe for concurrent use.
+Images returned by `Decoder` share its reusable pixel buffer
+and remain valid only until the next decode call on the same decoder.
+Copy the image if it must be retained.
 
 ## Notes
 
