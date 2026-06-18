@@ -32,7 +32,7 @@ jobs:
 
       - name: Request pkg.go.dev reindex
         env:
-          MODULE: github.com/woozymasta/bcn
+          MODULE: github.com/woozymasta/edds
           VERSION: ${{ github.ref_name }}
         run: >-
           curl -sSfX POST --retry 3 --retry-delay 2
