@@ -96,18 +96,53 @@ func intToFourCC(value uint32) string {
 
 // expectedDataLength calculates the expected data length for a given format and dimensions.
 func expectedDataLength(format bcn.Format, width, height int) int {
-	blocksW := (width + 3) / 4
-	blocksH := (height + 3) / 4
-	switch format {
-	case bcn.FormatDXT1, bcn.FormatBC4, bcn.FormatBC4S:
-		return blocksW * blocksH * 8
-	case bcn.FormatDXT3, bcn.FormatDXT5, bcn.FormatBC5, bcn.FormatBC5S, bcn.FormatBC7:
-		return blocksW * blocksH * 16
-	case bcn.FormatRGBA8, bcn.FormatBGRA8:
-		return width * height * 4
-	default:
+	length, err := expectedDataLengthChecked(format, width, height)
+	if err != nil {
 		return -1
 	}
+
+	return length
+}
+
+// expectedDataLengthChecked calculates the expected data length without integer overflow.
+func expectedDataLengthChecked(format bcn.Format, width, height int) (int, error) {
+	if width <= 0 || height <= 0 {
+		return 0, ErrSizeOverflow
+	}
+
+	w := uint64(width)
+	h := uint64(height)
+	var size uint64
+
+	switch format {
+	case bcn.FormatDXT1, bcn.FormatBC4, bcn.FormatBC4S:
+		size = checkedDataLength((w+3)/4, (h+3)/4, 8)
+	case bcn.FormatDXT3, bcn.FormatDXT5, bcn.FormatBC5, bcn.FormatBC5S, bcn.FormatBC7:
+		size = checkedDataLength((w+3)/4, (h+3)/4, 16)
+	case bcn.FormatRGBA8, bcn.FormatBGRA8:
+		size = checkedDataLength(w, h, 4)
+	default:
+		return 0, ErrInvalidFormat
+	}
+
+	if size == 0 || size > uint64(maxInt) {
+		return 0, ErrSizeOverflow
+	}
+
+	return int(size), nil
+}
+
+// checkedDataLength returns a positive byte length or zero on uint64 overflow.
+func checkedDataLength(factors ...uint64) uint64 {
+	product := uint64(1)
+	for _, factor := range factors {
+		if factor == 0 || product > ^uint64(0)/factor {
+			return 0
+		}
+		product *= factor
+	}
+
+	return product
 }
 
 // makeFourCC creates a four-character code from four bytes.

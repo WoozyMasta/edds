@@ -383,6 +383,64 @@ func TestExpectedDataLengthTable(t *testing.T) {
 	}
 }
 
+func TestReadLimits(t *testing.T) {
+	t.Parallel()
+
+	defaults, err := normalizeReadLimits(nil)
+	if err != nil {
+		t.Fatalf("normalizeReadLimits: %v", err)
+	}
+	wantInputBytes := min(int64(2<<30), int64(maxInt-1))
+	if defaults.maxBlockBytes != 1<<30 || defaults.maxDecodedBytes != 1<<30 || defaults.maxImageBytes != 1<<30 || defaults.maxInputBytes != wantInputBytes {
+		t.Fatalf("unexpected defaults: %+v", defaults)
+	}
+
+	if _, err := normalizeReadLimits(&ReadOptions{MaxBlockBytes: -1}); !errors.Is(err, ErrInvalidReadOptions) {
+		t.Fatalf("negative limit error = %v, want ErrInvalidReadOptions", err)
+	}
+	if _, err := normalizeReadLimits(&ReadOptions{MaxMipMaps: defaultMaxReadMipMaps + 1}); !errors.Is(err, ErrInvalidReadOptions) {
+		t.Fatalf("mipmap option error = %v, want ErrInvalidReadOptions", err)
+	}
+
+	header := &bcn.DDSHeader{Caps: bcn.DDSCapsMipmap, MipMapCount: defaultMaxReadMipMaps + 1}
+	if _, err := readMipMapCount(header, defaults); !errors.Is(err, ErrReadLimitExceeded) {
+		t.Fatalf("mipmap limit error = %v, want ErrReadLimitExceeded", err)
+	}
+
+	if _, err := expectedReadDataLength(bcn.FormatRGBA8, 16*1024, 16*1024, defaults); err != nil {
+		t.Fatalf("16K RGBA default limit: %v", err)
+	}
+	if _, err := expectedReadDataLength(bcn.FormatRGBA8, 4, 4, readLimits{maxDecodedBytes: 1}); !errors.Is(err, ErrReadLimitExceeded) {
+		t.Fatalf("decoded size limit error = %v, want ErrReadLimitExceeded", err)
+	}
+	if _, err := expectedReadDataLength(bcn.FormatDXT1, 4, 4, readLimits{maxDecodedBytes: 1024, maxImageBytes: 1}); !errors.Is(err, ErrReadLimitExceeded) {
+		t.Fatalf("image size limit error = %v, want ErrReadLimitExceeded", err)
+	}
+	if _, err := expectedDataLengthChecked(bcn.FormatBC7, int(^uint32(0)), int(^uint32(0))); !errors.Is(err, ErrSizeOverflow) {
+		t.Fatalf("overflow error = %v, want ErrSizeOverflow", err)
+	}
+
+	var blockTable bytes.Buffer
+	_, _ = blockTable.WriteString(BlockMagicCOPY)
+	if err := binary.Write(&blockTable, binary.LittleEndian, int32(1025)); err != nil {
+		t.Fatalf("write block size: %v", err)
+	}
+	_, _, _, err = readLargestMipFromBlocks(
+		bytes.NewReader(blockTable.Bytes()),
+		&bcn.DDSHeader{Width: 4, Height: 4},
+		bcn.FormatDXT1,
+		1,
+		readLimits{maxMipMaps: 1, maxBlockBytes: 1024, maxDecodedBytes: 1024},
+	)
+	if !errors.Is(err, ErrReadLimitExceeded) {
+		t.Fatalf("block size limit error = %v, want ErrReadLimitExceeded", err)
+	}
+
+	if _, err := ensureReadSeeker(bytes.NewBuffer(make([]byte, 17)), 16); !errors.Is(err, ErrReadLimitExceeded) {
+		t.Fatalf("stream input limit error = %v, want ErrReadLimitExceeded", err)
+	}
+}
+
 func TestReadBlockTableErrors(t *testing.T) {
 	t.Parallel()
 

@@ -5,6 +5,7 @@
 package edds
 
 const (
+	maxInt    = int(^uint(0) >> 1)
 	maxInt32  = int(^uint32(0) >> 1)
 	maxUint32 = uint64(^uint32(0))
 )

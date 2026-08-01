@@ -27,6 +27,25 @@ if err != nil {
 _ = img
 ```
 
+### Read EDDS with limits
+
+By default, reads accept up to 32 mipmaps,
+1 GiB per block/decoded payload/image,
+and 2 GiB of buffered stream or legacy input.
+This accepts a 16K RGBA texture.
+Tighten limits when decoding untrusted files in a service:
+
+```go
+img, err := edds.ReadWithOptions("atlas.edds", &edds.ReadOptions{
+  MaxBlockBytes:   64 << 20,
+  MaxDecodedBytes: 64 << 20,
+  MaxImageBytes:   64 << 20,
+  MaxInputBytes:   128 << 20,
+})
+_ = img
+_ = err
+```
+
 ### Read config only
 
 ```go

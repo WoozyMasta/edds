@@ -15,10 +15,81 @@ import (
 	"github.com/woozymasta/bcn"
 )
 
+const (
+	defaultMaxReadMipMaps      = 32
+	defaultMaxReadBlockBytes   = 1 << 30
+	defaultMaxReadDecodedBytes = 1 << 30
+	defaultMaxReadImageBytes   = 1 << 30
+	defaultMaxReadInputBytes   = 2 << 30
+)
+
 // ReadOptions configures EDDS reading (e.g. BCn decode workers).
 type ReadOptions struct {
 	// DecodeOptions are passed to the BCn decoder (e.g. Workers).
 	DecodeOptions *bcn.DecodeOptions
+	// MaxMipMaps limits entries read from the EDDS block table. Zero uses the default.
+	MaxMipMaps uint32
+	// MaxBlockBytes limits one compressed or COPY block body. Zero uses the default.
+	MaxBlockBytes int
+	// MaxDecodedBytes limits one decoded mip payload. Zero uses the default.
+	MaxDecodedBytes int
+	// MaxImageBytes limits the decoded NRGBA image. Zero uses the default.
+	MaxImageBytes int
+	// MaxInputBytes limits buffered stream and legacy EDDS input. Zero uses the default.
+	MaxInputBytes int64
+}
+
+type readLimits struct {
+	maxMipMaps      uint32
+	maxBlockBytes   int
+	maxDecodedBytes int
+	maxImageBytes   int
+	maxInputBytes   int64
+}
+
+// normalizeReadLimits applies default limits and validates caller-provided overrides.
+func normalizeReadLimits(opts *ReadOptions) (readLimits, error) {
+	limits := readLimits{
+		maxMipMaps:      defaultMaxReadMipMaps,
+		maxBlockBytes:   defaultMaxReadBlockBytes,
+		maxDecodedBytes: defaultMaxReadDecodedBytes,
+		maxImageBytes:   defaultMaxReadImageBytes,
+		maxInputBytes:   min(int64(defaultMaxReadInputBytes), int64(maxInt-1)),
+	}
+	if opts == nil {
+		return limits, nil
+	}
+
+	if opts.MaxMipMaps > defaultMaxReadMipMaps {
+		return readLimits{}, fmt.Errorf("%w: MaxMipMaps must not exceed %d", ErrInvalidReadOptions, defaultMaxReadMipMaps)
+	}
+	if opts.MaxMipMaps > 0 {
+		limits.maxMipMaps = opts.MaxMipMaps
+	}
+	if opts.MaxBlockBytes < 0 || opts.MaxDecodedBytes < 0 || opts.MaxImageBytes < 0 || opts.MaxInputBytes < 0 {
+		return readLimits{}, fmt.Errorf("%w: limits must not be negative", ErrInvalidReadOptions)
+	}
+	if opts.MaxBlockBytes > maxInt32 {
+		return readLimits{}, fmt.Errorf("%w: MaxBlockBytes exceeds EDDS block capacity", ErrInvalidReadOptions)
+	}
+
+	if opts.MaxBlockBytes > 0 {
+		limits.maxBlockBytes = opts.MaxBlockBytes
+	}
+	if opts.MaxDecodedBytes > 0 {
+		limits.maxDecodedBytes = opts.MaxDecodedBytes
+	}
+	if opts.MaxImageBytes > 0 {
+		limits.maxImageBytes = opts.MaxImageBytes
+	}
+	if opts.MaxInputBytes > 0 {
+		if opts.MaxInputBytes >= int64(maxInt) {
+			return readLimits{}, fmt.Errorf("%w: MaxInputBytes exceeds platform capacity", ErrInvalidReadOptions)
+		}
+		limits.maxInputBytes = opts.MaxInputBytes
+	}
+
+	return limits, nil
 }
 
 // ReadConfig reads EDDS file configuration without decoding image data.
@@ -59,11 +130,19 @@ func DecodeWithOptions(r io.Reader, opts *ReadOptions) (image.Image, error) {
 // ReadWithOptions reads and decodes an EDDS file with the given options.
 // Nil opts uses default decoding (no DecodeOptions passed to bcn).
 func ReadWithOptions(path string, opts *ReadOptions) (image.Image, error) {
+	limits, err := normalizeReadLimits(opts)
+	if err != nil {
+		return nil, err
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %q: %v", ErrOpenFile, path, err)
 	}
 	defer func() { _ = f.Close() }()
+	if err := validateInputFileSize(f, limits); err != nil {
+		return nil, err
+	}
 
 	header, dx10, err := readEDDSHeaders(f)
 	if err != nil {
@@ -72,14 +151,14 @@ func ReadWithOptions(path string, opts *ReadOptions) (image.Image, error) {
 
 	format := detectFormat(header, dx10)
 
-	mipMapCount := uint32(1)
-	if (header.Caps&bcn.DDSCapsMipmap) != 0 && header.MipMapCount > 0 {
-		mipMapCount = header.MipMapCount
+	mipMapCount, err := readMipMapCount(header, limits)
+	if err != nil {
+		return nil, err
 	}
 
-	mipData, mipWidth, mipHeight, err := readLargestMipFromBlocks(f, header, format, mipMapCount)
+	mipData, mipWidth, mipHeight, err := readLargestMipFromBlocks(f, header, format, mipMapCount, limits)
 	if err != nil {
-		mipData, mipWidth, mipHeight, err = readLegacySingleBlock(f, header, dx10, format)
+		mipData, mipWidth, mipHeight, err = readLegacySingleBlock(f, header, dx10, format, limits)
 		if err != nil {
 			return nil, err
 		}
@@ -121,7 +200,12 @@ func (d *Decoder) Decode(r io.Reader) (image.Image, error) {
 
 // DecodeWithOptions reads and decodes an EDDS stream with the given options.
 func (d *Decoder) DecodeWithOptions(r io.Reader, opts *ReadOptions) (image.Image, error) {
-	rs, err := ensureReadSeeker(r)
+	limits, err := normalizeReadLimits(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	rs, err := ensureReadSeeker(r, limits.maxInputBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -133,14 +217,14 @@ func (d *Decoder) DecodeWithOptions(r io.Reader, opts *ReadOptions) (image.Image
 
 	format := detectFormat(header, dx10)
 
-	mipMapCount := uint32(1)
-	if (header.Caps&bcn.DDSCapsMipmap) != 0 && header.MipMapCount > 0 {
-		mipMapCount = header.MipMapCount
+	mipMapCount, err := readMipMapCount(header, limits)
+	if err != nil {
+		return nil, err
 	}
 
-	mipData, mipWidth, mipHeight, err := d.readLargestMipFromBlocks(rs, header, format, mipMapCount)
+	mipData, mipWidth, mipHeight, err := d.readLargestMipFromBlocks(rs, header, format, mipMapCount, limits)
 	if err != nil {
-		mipData, mipWidth, mipHeight, err = d.readLegacySingleBlock(rs, header, dx10, format)
+		mipData, mipWidth, mipHeight, err = d.readLegacySingleBlock(rs, header, dx10, format, limits)
 		if err != nil {
 			return nil, err
 		}
@@ -165,6 +249,7 @@ func readLargestMipFromBlocks(
 	header *bcn.DDSHeader,
 	format bcn.Format,
 	mipMapCount uint32,
+	limits readLimits,
 ) ([]byte, int, int, error) {
 	if mipMapCount == 0 {
 		mipMapCount = 1
@@ -173,6 +258,9 @@ func readLargestMipFromBlocks(
 	table, err := readBlockTable(r, mipMapCount)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("%w: %v", ErrReadBlockTable, err)
+	}
+	if err := validateBlockTable(table, limits); err != nil {
+		return nil, 0, 0, err
 	}
 
 	// EDDS writes the block table and payloads from smallest to largest mip.
@@ -186,17 +274,17 @@ func readLargestMipFromBlocks(
 			continue
 		}
 
-		block, err := readBlockBody(r, table[i])
-		if err != nil {
-			return nil, 0, 0, fmt.Errorf("%w: mipmap %d: %v", ErrReadBlockBody, i, err)
-		}
-
 		mipW := mipDimension(int(header.Width), int(mipLevel))
 		mipH := mipDimension(int(header.Height), int(mipLevel))
 
-		expectedSize := expectedDataLength(format, mipW, mipH)
-		if expectedSize <= 0 {
-			return nil, 0, 0, fmt.Errorf("%w: %s for mipmap %d", ErrUnknownFormat, format, i)
+		expectedSize, err := expectedReadDataLength(format, mipW, mipH, limits)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+
+		block, err := readBlockBody(r, table[i])
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("%w: mipmap %d: %v", ErrReadBlockBody, i, err)
 		}
 
 		decompressed, err := decompressBlock(block, expectedSize)
@@ -223,6 +311,7 @@ func (d *Decoder) readLargestMipFromBlocksInto(
 	header *bcn.DDSHeader,
 	format bcn.Format,
 	mipMapCount uint32,
+	limits readLimits,
 ) ([]byte, int, int, error) {
 	if mipMapCount == 0 {
 		mipMapCount = 1
@@ -233,6 +322,9 @@ func (d *Decoder) readLargestMipFromBlocksInto(
 		return nil, 0, 0, fmt.Errorf("%w: %v", ErrReadBlockTable, err)
 	}
 	d.blockTable = table
+	if err := validateBlockTable(table, limits); err != nil {
+		return nil, 0, 0, err
+	}
 
 	// EDDS writes the block table and payloads from smallest to largest mip.
 	// The largest mip is therefore the last logical level and is selected here.
@@ -245,19 +337,19 @@ func (d *Decoder) readLargestMipFromBlocksInto(
 			continue
 		}
 
+		mipW := mipDimension(int(header.Width), int(mipLevel))
+		mipH := mipDimension(int(header.Height), int(mipLevel))
+
+		expectedSize, err := expectedReadDataLength(format, mipW, mipH, limits)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+
 		block, data, err := readBlockBodyInto(d.blockData, r, table[i])
 		if err != nil {
 			return nil, 0, 0, fmt.Errorf("%w: mipmap %d: %v", ErrReadBlockBody, i, err)
 		}
 		d.blockData = data
-
-		mipW := mipDimension(int(header.Width), int(mipLevel))
-		mipH := mipDimension(int(header.Height), int(mipLevel))
-
-		expectedSize := expectedDataLength(format, mipW, mipH)
-		if expectedSize <= 0 {
-			return nil, 0, 0, fmt.Errorf("%w: %s for mipmap %d", ErrUnknownFormat, format, i)
-		}
 
 		decompressed, err := d.decompressor.decompressBlock(d.raw, block, expectedSize)
 		if err != nil {
@@ -285,8 +377,9 @@ func (d *Decoder) readLargestMipFromBlocks(
 	header *bcn.DDSHeader,
 	format bcn.Format,
 	mipMapCount uint32,
+	limits readLimits,
 ) ([]byte, int, int, error) {
-	return d.readLargestMipFromBlocksInto(r, header, format, mipMapCount)
+	return d.readLargestMipFromBlocksInto(r, header, format, mipMapCount, limits)
 }
 
 // readLegacySingleBlock is a backward-compatibility fallback for older EDDS files.
@@ -297,7 +390,13 @@ func readLegacySingleBlock(
 	header *bcn.DDSHeader,
 	dx10 *bcn.DDSHeaderDX10,
 	format bcn.Format,
+	limits readLimits,
 ) ([]byte, int, int, error) {
+	expectedSize, err := expectedReadDataLength(format, int(header.Width), int(header.Height), limits)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
 	headerSize := int64(4 + bcn.DDSHeaderSize)
 	if dx10 != nil {
 		headerSize += 20
@@ -306,14 +405,9 @@ func readLegacySingleBlock(
 		return nil, 0, 0, fmt.Errorf("%w: %v", ErrSeekDataStart, err)
 	}
 
-	remainingData, err := io.ReadAll(r)
+	remainingData, err := readAllWithLimit(r, int64(limits.maxBlockBytes))
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("%w: %v", ErrReadRemainingData, err)
-	}
-
-	expectedSize := expectedDataLength(format, int(header.Width), int(header.Height))
-	if expectedSize <= 0 {
-		return nil, 0, 0, fmt.Errorf("%w: %s", ErrUnknownFormat, format)
+		return nil, 0, 0, fmt.Errorf("%w: %w", ErrReadRemainingData, err)
 	}
 
 	size, err := i32FromInt(len(remainingData))
@@ -347,7 +441,13 @@ func (d *Decoder) readLegacySingleBlock(
 	header *bcn.DDSHeader,
 	dx10 *bcn.DDSHeaderDX10,
 	format bcn.Format,
+	limits readLimits,
 ) ([]byte, int, int, error) {
+	expectedSize, err := expectedReadDataLength(format, int(header.Width), int(header.Height), limits)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
 	headerSize := int64(4 + bcn.DDSHeaderSize)
 	if dx10 != nil {
 		headerSize += 20
@@ -356,14 +456,9 @@ func (d *Decoder) readLegacySingleBlock(
 		return nil, 0, 0, fmt.Errorf("%w: %v", ErrSeekDataStart, err)
 	}
 
-	remainingData, err := io.ReadAll(r)
+	remainingData, err := readAllWithLimit(r, int64(limits.maxBlockBytes))
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("%w: %v", ErrReadRemainingData, err)
-	}
-
-	expectedSize := expectedDataLength(format, int(header.Width), int(header.Height))
-	if expectedSize <= 0 {
-		return nil, 0, 0, fmt.Errorf("%w: %s", ErrUnknownFormat, format)
+		return nil, 0, 0, fmt.Errorf("%w: %w", ErrReadRemainingData, err)
 	}
 
 	size, err := i32FromInt(len(remainingData))
@@ -402,15 +497,89 @@ func readEDDSHeaders(r io.Reader) (*bcn.DDSHeader, *bcn.DDSHeaderDX10, error) {
 }
 
 // ensureReadSeeker returns r as an io.ReadSeeker, buffering non-seekable streams.
-func ensureReadSeeker(r io.Reader) (io.ReadSeeker, error) {
+func ensureReadSeeker(r io.Reader, maxInputBytes int64) (io.ReadSeeker, error) {
 	if rs, ok := r.(io.ReadSeeker); ok {
 		return rs, nil
 	}
 
-	data, err := io.ReadAll(r)
+	data, err := readAllWithLimit(r, maxInputBytes)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrReadRemainingData, err)
+		return nil, fmt.Errorf("%w: %w", ErrReadRemainingData, err)
 	}
 
 	return bytes.NewReader(data), nil
+}
+
+// readMipMapCount returns the header mip count after enforcing the configured limit.
+func readMipMapCount(header *bcn.DDSHeader, limits readLimits) (uint32, error) {
+	mipMapCount := uint32(1)
+	if (header.Caps&bcn.DDSCapsMipmap) != 0 && header.MipMapCount > 0 {
+		mipMapCount = header.MipMapCount
+	}
+	if mipMapCount > limits.maxMipMaps {
+		return 0, fmt.Errorf("%w: mipmaps %d exceeds %d", ErrReadLimitExceeded, mipMapCount, limits.maxMipMaps)
+	}
+
+	return mipMapCount, nil
+}
+
+// validateBlockTable ensures every block body fits within the configured limit.
+func validateBlockTable(table []blockHeader, limits readLimits) error {
+	for i, block := range table {
+		if int64(block.Size) > int64(limits.maxBlockBytes) {
+			return fmt.Errorf("%w: block %d size %d exceeds %d", ErrReadLimitExceeded, i, block.Size, limits.maxBlockBytes)
+		}
+	}
+
+	return nil
+}
+
+// expectedReadDataLength validates the raw mip payload and decoded image sizes.
+func expectedReadDataLength(format bcn.Format, width, height int, limits readLimits) (int, error) {
+	imageSize, err := expectedDataLengthChecked(bcn.FormatRGBA8, width, height)
+	if err != nil {
+		return 0, err
+	}
+	if imageSize > limits.maxImageBytes {
+		return 0, fmt.Errorf("%w: decoded image %d bytes exceeds %d", ErrReadLimitExceeded, imageSize, limits.maxImageBytes)
+	}
+
+	size, err := expectedDataLengthChecked(format, width, height)
+	if err != nil {
+		if err == ErrInvalidFormat {
+			return 0, fmt.Errorf("%w: %s", ErrUnknownFormat, format)
+		}
+		return 0, err
+	}
+	if size > limits.maxDecodedBytes {
+		return 0, fmt.Errorf("%w: decoded mip %d bytes exceeds %d", ErrReadLimitExceeded, size, limits.maxDecodedBytes)
+	}
+
+	return size, nil
+}
+
+// validateInputFileSize rejects files that exceed the configured buffered-input limit.
+func validateInputFileSize(f *os.File, limits readLimits) error {
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrReadRemainingData, err)
+	}
+	if info.Size() > limits.maxInputBytes {
+		return fmt.Errorf("%w: input %d bytes exceeds %d", ErrReadLimitExceeded, info.Size(), limits.maxInputBytes)
+	}
+
+	return nil
+}
+
+// readAllWithLimit reads at most maxBytes bytes and reports a read-limit error otherwise.
+func readAllWithLimit(r io.Reader, maxBytes int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%w: input exceeds %d bytes", ErrReadLimitExceeded, maxBytes)
+	}
+
+	return data, nil
 }

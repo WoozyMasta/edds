@@ -20,8 +20,12 @@ and this project adheres to [Semantic Versioning][].
 
 * Read support for DX10 BC7, BC4 signed-normalized,
   and BC5 signed-normalized EDDS textures.
+* Configurable EDDS read limits for block tables, block bodies,
+  decoded payloads, output images, and buffered input.
 
 ### Changed
+
+* Default EDDS reads now enforce limits that accept 16K RGBA textures.
 
 ## [0.3.0][] - 2026-06-18
 

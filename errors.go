@@ -17,6 +17,10 @@ var (
 	ErrMipmapSizeMismatch = errors.New("mipmap size mismatch")
 	// ErrInputTooLarge indicates input data is too large to encode.
 	ErrInputTooLarge = errors.New("input data too large")
+	// ErrInvalidReadOptions indicates invalid EDDS read options.
+	ErrInvalidReadOptions = errors.New("invalid read options")
+	// ErrReadLimitExceeded indicates EDDS input exceeds configured read limits.
+	ErrReadLimitExceeded = errors.New("EDDS read limit exceeded")
 	// ErrCompressedDataTooLarge indicates compressed payload exceeds limits.
 	ErrCompressedDataTooLarge = errors.New("compressed data too large")
 	// ErrChunkTooLarge indicates a compressed chunk exceeds allowed size.
