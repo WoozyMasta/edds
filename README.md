@@ -31,7 +31,7 @@ _ = img
 
 By default, reads accept up to 32 mipmaps,
 1 GiB per block/decoded payload/image,
-and 2 GiB of buffered stream or legacy input.
+and 2 GiB of sequential stream or legacy input.
 This accepts a 16K RGBA texture.
 Tighten limits when decoding untrusted files in a service:
 

@@ -5,6 +5,7 @@
 package edds
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"image"
@@ -45,6 +46,26 @@ type readLimits struct {
 	maxDecodedBytes int
 	maxImageBytes   int
 	maxInputBytes   int64
+}
+
+// limitedReader stops a sequential decode after the configured input limit.
+type limitedReader struct {
+	r         io.Reader
+	remaining int64
+}
+
+// Read forwards up to the remaining input budget.
+func (r *limitedReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		return 0, ErrReadLimitExceeded
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+
+	n, err := r.r.Read(p)
+	r.remaining -= int64(n)
+	return n, err
 }
 
 // normalizeReadLimits applies default limits and validates caller-provided overrides.
@@ -205,12 +226,17 @@ func (d *Decoder) DecodeWithOptions(r io.Reader, opts *ReadOptions) (image.Image
 		return nil, err
 	}
 
-	rs, err := ensureReadSeeker(r, limits.maxInputBytes)
-	if err != nil {
-		return nil, err
+	if rs, ok := r.(io.ReadSeeker); ok {
+		return d.decodeReadSeeker(rs, opts, limits)
 	}
 
-	header, dx10, err := readEDDSHeaders(rs)
+	stream := bufio.NewReader(&limitedReader{r: r, remaining: limits.maxInputBytes})
+	return d.decodeStream(stream, opts, limits)
+}
+
+// decodeReadSeeker decodes an EDDS stream and supports seeking back for legacy input.
+func (d *Decoder) decodeReadSeeker(r io.ReadSeeker, opts *ReadOptions, limits readLimits) (image.Image, error) {
+	header, dx10, err := readEDDSHeaders(r)
 	if err != nil {
 		return nil, err
 	}
@@ -222,14 +248,57 @@ func (d *Decoder) DecodeWithOptions(r io.Reader, opts *ReadOptions) (image.Image
 		return nil, err
 	}
 
-	mipData, mipWidth, mipHeight, err := d.readLargestMipFromBlocks(rs, header, format, mipMapCount, limits)
+	mipData, mipWidth, mipHeight, err := d.readLargestMipFromBlocks(r, header, format, mipMapCount, limits)
 	if err != nil {
-		mipData, mipWidth, mipHeight, err = d.readLegacySingleBlock(rs, header, dx10, format, limits)
+		mipData, mipWidth, mipHeight, err = d.readLegacySingleBlock(r, header, dx10, format, limits)
 		if err != nil {
 			return nil, err
 		}
 	}
 
+	return d.decodePayload(mipData, mipWidth, mipHeight, format, opts)
+}
+
+// decodeStream decodes a non-seekable EDDS stream without buffering the whole input.
+func (d *Decoder) decodeStream(r *bufio.Reader, opts *ReadOptions, limits readLimits) (image.Image, error) {
+	header, dx10, err := readEDDSHeaders(r)
+	if err != nil {
+		return nil, err
+	}
+
+	format := detectFormat(header, dx10)
+	mipMapCount, err := readMipMapCount(header, limits)
+	if err != nil {
+		return nil, err
+	}
+
+	hasBlockTable, err := hasBlockTableMagic(r)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrReadBlockTable, err)
+	}
+	if !hasBlockTable {
+		mipData, mipWidth, mipHeight, err := d.readLegacySingleBlockFromReader(r, header, format, limits)
+		if err != nil {
+			return nil, err
+		}
+		return d.decodePayload(mipData, mipWidth, mipHeight, format, opts)
+	}
+
+	mipData, mipWidth, mipHeight, err := d.readLargestMipFromReader(r, header, format, mipMapCount, limits)
+	if err != nil {
+		return nil, err
+	}
+
+	return d.decodePayload(mipData, mipWidth, mipHeight, format, opts)
+}
+
+// decodePayload converts the selected EDDS mip payload into an NRGBA image.
+func (d *Decoder) decodePayload(
+	mipData []byte,
+	mipWidth, mipHeight int,
+	format bcn.Format,
+	opts *ReadOptions,
+) (image.Image, error) {
 	decOpts := (*bcn.DecodeOptions)(nil)
 	if opts != nil {
 		decOpts = opts.DecodeOptions
@@ -265,7 +334,7 @@ func readLargestMipFromBlocks(
 
 	// EDDS writes the block table and payloads from smallest to largest mip.
 	// The largest mip is therefore the last logical level and is selected here.
-	for i := uint32(0); i < mipMapCount; i++ {
+	for i := range mipMapCount {
 		mipLevel := mipMapCount - i - 1
 		if mipLevel != 0 {
 			if _, err := r.Seek(int64(table[i].Size), io.SeekCurrent); err != nil {
@@ -328,7 +397,7 @@ func (d *Decoder) readLargestMipFromBlocksInto(
 
 	// EDDS writes the block table and payloads from smallest to largest mip.
 	// The largest mip is therefore the last logical level and is selected here.
-	for i := uint32(0); i < mipMapCount; i++ {
+	for i := range mipMapCount {
 		mipLevel := mipMapCount - i - 1
 		if mipLevel != 0 {
 			if _, err := r.Seek(int64(table[i].Size), io.SeekCurrent); err != nil {
@@ -380,6 +449,71 @@ func (d *Decoder) readLargestMipFromBlocks(
 	limits readLimits,
 ) ([]byte, int, int, error) {
 	return d.readLargestMipFromBlocksInto(r, header, format, mipMapCount, limits)
+}
+
+// readLargestMipFromReader reads the largest mipmap from a sequential EDDS stream.
+func (d *Decoder) readLargestMipFromReader(
+	r io.Reader,
+	header *bcn.DDSHeader,
+	format bcn.Format,
+	mipMapCount uint32,
+	limits readLimits,
+) ([]byte, int, int, error) {
+	table, err := readBlockTable(r, mipMapCount)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("%w: %v", ErrReadBlockTable, err)
+	}
+	if err := validateBlockTable(table, limits); err != nil {
+		return nil, 0, 0, err
+	}
+
+	for i := range mipMapCount {
+		mipLevel := mipMapCount - i - 1
+		if mipLevel != 0 {
+			if err := discardBlockBody(r, table[i].Size); err != nil {
+				return nil, 0, 0, fmt.Errorf("%w: mipmap %d: %w", ErrSkipBlockBody, i, err)
+			}
+			continue
+		}
+
+		mipW := mipDimension(int(header.Width), int(mipLevel))
+		mipH := mipDimension(int(header.Height), int(mipLevel))
+		expectedSize, err := expectedReadDataLength(format, mipW, mipH, limits)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+
+		block, data, err := readBlockBodyInto(d.blockData, r, table[i])
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("%w: mipmap %d: %v", ErrReadBlockBody, i, err)
+		}
+		d.blockData = data
+
+		decompressed, err := d.decompressor.decompressBlock(d.raw, block, expectedSize)
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("%w: mipmap %d: %v", ErrDecompressBlock, i, err)
+		}
+		d.raw = decompressed
+		return decompressed, mipW, mipH, nil
+	}
+
+	return nil, 0, 0, fmt.Errorf("%w: mipmaps=%d", ErrPickLargestMip, mipMapCount)
+}
+
+// hasBlockTableMagic reports whether the next bytes begin a current EDDS block table.
+func hasBlockTableMagic(r *bufio.Reader) (bool, error) {
+	magic, err := r.Peek(4)
+	if err != nil {
+		return false, err
+	}
+
+	return bytes.Equal(magic, []byte(BlockMagicCOPY)) || bytes.Equal(magic, []byte(BlockMagicLZ4)), nil
+}
+
+// discardBlockBody consumes one block body from a sequential EDDS stream.
+func discardBlockBody(r io.Reader, size int32) error {
+	_, err := io.CopyN(io.Discard, r, int64(size))
+	return err
 }
 
 // readLegacySingleBlock is a backward-compatibility fallback for older EDDS files.
@@ -443,17 +577,27 @@ func (d *Decoder) readLegacySingleBlock(
 	format bcn.Format,
 	limits readLimits,
 ) ([]byte, int, int, error) {
-	expectedSize, err := expectedReadDataLength(format, int(header.Width), int(header.Height), limits)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-
 	headerSize := int64(4 + bcn.DDSHeaderSize)
 	if dx10 != nil {
 		headerSize += 20
 	}
 	if _, err := r.Seek(headerSize, io.SeekStart); err != nil {
 		return nil, 0, 0, fmt.Errorf("%w: %v", ErrSeekDataStart, err)
+	}
+
+	return d.readLegacySingleBlockFromReader(r, header, format, limits)
+}
+
+// readLegacySingleBlockFromReader reads a bounded legacy EDDS payload from r.
+func (d *Decoder) readLegacySingleBlockFromReader(
+	r io.Reader,
+	header *bcn.DDSHeader,
+	format bcn.Format,
+	limits readLimits,
+) ([]byte, int, int, error) {
+	expectedSize, err := expectedReadDataLength(format, int(header.Width), int(header.Height), limits)
+	if err != nil {
+		return nil, 0, 0, err
 	}
 
 	remainingData, err := readAllWithLimit(r, int64(limits.maxBlockBytes))
@@ -494,20 +638,6 @@ func readEDDSHeaders(r io.Reader) (*bcn.DDSHeader, *bcn.DDSHeaderDX10, error) {
 	}
 
 	return header, dx10, nil
-}
-
-// ensureReadSeeker returns r as an io.ReadSeeker, buffering non-seekable streams.
-func ensureReadSeeker(r io.Reader, maxInputBytes int64) (io.ReadSeeker, error) {
-	if rs, ok := r.(io.ReadSeeker); ok {
-		return rs, nil
-	}
-
-	data, err := readAllWithLimit(r, maxInputBytes)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrReadRemainingData, err)
-	}
-
-	return bytes.NewReader(data), nil
 }
 
 // readMipMapCount returns the header mip count after enforcing the configured limit.

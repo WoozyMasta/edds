@@ -13,6 +13,19 @@ import (
 	"github.com/woozymasta/bcn"
 )
 
+type maxReadRequestReader struct {
+	r   *bytes.Reader
+	max int
+}
+
+func (r *maxReadRequestReader) Read(p []byte) (int, error) {
+	if len(p) > r.max {
+		return 0, errors.New("read request exceeds maximum")
+	}
+
+	return r.r.Read(p)
+}
+
 func TestCompressRoundTrip(t *testing.T) {
 	data := make([]byte, 128*1024)
 	for i := range data {
@@ -144,6 +157,32 @@ func TestStreamEncodeDecode(t *testing.T) {
 	}
 	if !bytes.Equal(gotNRGBA.Pix, img.Pix) {
 		t.Fatalf("stream round-trip pixel mismatch")
+	}
+}
+
+func TestDecodeNonSeekableStream(t *testing.T) {
+	t.Parallel()
+
+	img := benchImage(128, 128)
+	var buf bytes.Buffer
+	if err := EncodeWithOptions(&buf, img, &WriteOptions{
+		Format:      bcn.FormatBGRA8,
+		MaxMipMaps:  1,
+		Compression: CompressionOptions{Mode: CompressionNone},
+	}); err != nil {
+		t.Fatalf("EncodeWithOptions: %v", err)
+	}
+
+	got, err := Decode(&maxReadRequestReader{r: bytes.NewReader(buf.Bytes()), max: 64 * 1024})
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	gotNRGBA, ok := got.(*image.NRGBA)
+	if !ok {
+		t.Fatalf("expected *image.NRGBA, got %T", got)
+	}
+	if !bytes.Equal(gotNRGBA.Pix, img.Pix) {
+		t.Fatalf("non-seekable stream round-trip pixel mismatch")
 	}
 }
 
@@ -436,7 +475,7 @@ func TestReadLimits(t *testing.T) {
 		t.Fatalf("block size limit error = %v, want ErrReadLimitExceeded", err)
 	}
 
-	if _, err := ensureReadSeeker(bytes.NewBuffer(make([]byte, 17)), 16); !errors.Is(err, ErrReadLimitExceeded) {
+	if _, err := readAllWithLimit(bytes.NewBuffer(make([]byte, 17)), 16); !errors.Is(err, ErrReadLimitExceeded) {
 		t.Fatalf("stream input limit error = %v, want ErrReadLimitExceeded", err)
 	}
 }
