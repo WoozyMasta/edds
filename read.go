@@ -177,12 +177,23 @@ func ReadWithOptions(path string, opts *ReadOptions) (image.Image, error) {
 		return nil, err
 	}
 
-	mipData, mipWidth, mipHeight, err := readLargestMipFromBlocks(f, header, format, mipMapCount, limits)
+	hasBlockTable, err := hasBlockTableMagicAtCurrent(f)
 	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrReadBlockTable, err)
+	}
+
+	var mipData []byte
+	var mipWidth, mipHeight int
+	if hasBlockTable {
+		mipData, mipWidth, mipHeight, err = readLargestMipFromBlocks(f, header, format, mipMapCount, limits)
+	} else {
 		mipData, mipWidth, mipHeight, err = readLegacySingleBlock(f, header, dx10, format, limits)
 		if err != nil {
 			return nil, err
 		}
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	decOpts := (*bcn.DecodeOptions)(nil)
@@ -248,12 +259,23 @@ func (d *Decoder) decodeReadSeeker(r io.ReadSeeker, opts *ReadOptions, limits re
 		return nil, err
 	}
 
-	mipData, mipWidth, mipHeight, err := d.readLargestMipFromBlocks(r, header, format, mipMapCount, limits)
+	hasBlockTable, err := hasBlockTableMagicAtCurrent(r)
 	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrReadBlockTable, err)
+	}
+
+	var mipData []byte
+	var mipWidth, mipHeight int
+	if hasBlockTable {
+		mipData, mipWidth, mipHeight, err = d.readLargestMipFromBlocks(r, header, format, mipMapCount, limits)
+	} else {
 		mipData, mipWidth, mipHeight, err = d.readLegacySingleBlock(r, header, dx10, format, limits)
 		if err != nil {
 			return nil, err
 		}
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	return d.decodePayload(mipData, mipWidth, mipHeight, format, opts)
@@ -507,7 +529,32 @@ func hasBlockTableMagic(r *bufio.Reader) (bool, error) {
 		return false, err
 	}
 
-	return bytes.Equal(magic, []byte(BlockMagicCOPY)) || bytes.Equal(magic, []byte(BlockMagicLZ4)), nil
+	return isBlockTableMagic(magic), nil
+}
+
+// hasBlockTableMagicAtCurrent reports whether an io.ReadSeeker is positioned at a current block table.
+func hasBlockTableMagicAtCurrent(r io.ReadSeeker) (bool, error) {
+	position, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return false, err
+	}
+
+	var magic [4]byte
+	_, readErr := io.ReadFull(r, magic[:])
+	_, seekErr := r.Seek(position, io.SeekStart)
+	if readErr != nil {
+		return false, readErr
+	}
+	if seekErr != nil {
+		return false, seekErr
+	}
+
+	return isBlockTableMagic(magic[:]), nil
+}
+
+// isBlockTableMagic reports whether magic is a supported current EDDS block marker.
+func isBlockTableMagic(magic []byte) bool {
+	return bytes.Equal(magic, []byte(BlockMagicCOPY)) || bytes.Equal(magic, []byte(BlockMagicLZ4))
 }
 
 // discardBlockBody consumes one block body from a sequential EDDS stream.

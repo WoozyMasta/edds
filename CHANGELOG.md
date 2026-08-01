@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning][].
 * Default EDDS reads now enforce limits that accept 16K RGBA textures.
 * `Decode` now reads current EDDS block streams sequentially
   from non-seekable inputs.
+* Current EDDS block-table errors no longer fall back to legacy parsing.
 
 ## [0.3.0][] - 2026-06-18
 

@@ -186,6 +186,44 @@ func TestDecodeNonSeekableStream(t *testing.T) {
 	}
 }
 
+func TestCurrentBlockTableErrorsDoNotFallbackToLegacy(t *testing.T) {
+	t.Parallel()
+
+	img := image.NewNRGBA(image.Rect(0, 0, 4, 4))
+	var buf bytes.Buffer
+	if err := EncodeWithOptions(&buf, img, &WriteOptions{
+		Format:      bcn.FormatBGRA8,
+		MaxMipMaps:  1,
+		Compression: CompressionOptions{Mode: CompressionNone},
+	}); err != nil {
+		t.Fatalf("EncodeWithOptions: %v", err)
+	}
+
+	data := buf.Bytes()
+	blockSizeOffset := 4 + bcn.DDSHeaderSize + 4
+	binary.LittleEndian.PutUint32(data[blockSizeOffset:blockSizeOffset+4], 0)
+
+	assertCurrentBlockTableError := func(t *testing.T, err error) {
+		t.Helper()
+		if !errors.Is(err, ErrDecompressBlock) {
+			t.Fatalf("error = %v, want ErrDecompressBlock", err)
+		}
+		if errors.Is(err, ErrParseSingleBlock) {
+			t.Fatalf("error unexpectedly fell back to legacy parser: %v", err)
+		}
+	}
+
+	_, err := Decode(bytes.NewReader(data))
+	assertCurrentBlockTableError(t, err)
+
+	path := filepath.Join(t.TempDir(), "corrupt.edds")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	_, err = Read(path)
+	assertCurrentBlockTableError(t, err)
+}
+
 func TestWriteWithFormatAndOptions(t *testing.T) {
 	img := image.NewNRGBA(image.Rect(0, 0, 16, 16))
 	for y := 0; y < 16; y++ {
