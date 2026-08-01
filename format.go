@@ -23,10 +23,14 @@ func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) bcn.Format {
 			return bcn.FormatDXT3
 		case "DXT4", "DXT5":
 			return bcn.FormatDXT5
-		case "ATI1", "BC4U", "BC4S":
+		case "ATI1", "BC4U":
 			return bcn.FormatBC4
-		case "ATI2", "BC5U", "BC5S":
+		case "BC4S":
+			return bcn.FormatBC4S
+		case "ATI2", "BC5U":
 			return bcn.FormatBC5
+		case "BC5S":
+			return bcn.FormatBC5S
 		default:
 			return bcn.FormatUnknown
 		}
@@ -63,10 +67,16 @@ func mapDxgiFormat(dxgiFormat uint32) bcn.Format {
 		return bcn.FormatDXT5
 	case 80:
 		return bcn.FormatBC4
+	case 81:
+		return bcn.FormatBC4S
 	case 83:
 		return bcn.FormatBC5
+	case 84:
+		return bcn.FormatBC5S
 	case 87:
 		return bcn.FormatBGRA8
+	case 98:
+		return bcn.FormatBC7
 	case 28:
 		return bcn.FormatRGBA8
 	default:
@@ -89,9 +99,9 @@ func expectedDataLength(format bcn.Format, width, height int) int {
 	blocksW := (width + 3) / 4
 	blocksH := (height + 3) / 4
 	switch format {
-	case bcn.FormatDXT1, bcn.FormatBC4:
+	case bcn.FormatDXT1, bcn.FormatBC4, bcn.FormatBC4S:
 		return blocksW * blocksH * 8
-	case bcn.FormatDXT3, bcn.FormatDXT5, bcn.FormatBC5:
+	case bcn.FormatDXT3, bcn.FormatDXT5, bcn.FormatBC5, bcn.FormatBC5S, bcn.FormatBC7:
 		return blocksW * blocksH * 16
 	case bcn.FormatRGBA8, bcn.FormatBGRA8:
 		return width * height * 4

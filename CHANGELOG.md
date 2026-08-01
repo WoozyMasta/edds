@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## Unreleased
+
+### Added
+
+* Read support for DX10 BC7, BC4 signed-normalized,
+  and BC5 signed-normalized EDDS textures.
+
+### Changed
+
 ## [0.3.0][] - 2026-06-18
 
 ### Added

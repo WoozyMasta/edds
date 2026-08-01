@@ -290,6 +290,41 @@ func TestDetectFormatTable(t *testing.T) {
 			want: bcn.FormatDXT5,
 		},
 		{
+			name: "dxgi-bc7",
+			dx10: &bcn.DDSHeaderDX10{DXGIFormat: 98},
+			want: bcn.FormatBC7,
+		},
+		{
+			name: "dxgi-bc4s",
+			dx10: &bcn.DDSHeaderDX10{DXGIFormat: 81},
+			want: bcn.FormatBC4S,
+		},
+		{
+			name: "dxgi-bc5s",
+			dx10: &bcn.DDSHeaderDX10{DXGIFormat: 84},
+			want: bcn.FormatBC5S,
+		},
+		{
+			name: "fourcc-bc4s",
+			header: &bcn.DDSHeader{
+				PixelFormat: bcn.DDSPixelFormat{
+					Flags:  bcn.DDSPFFourCC,
+					FourCC: makeFourCC('B', 'C', '4', 'S'),
+				},
+			},
+			want: bcn.FormatBC4S,
+		},
+		{
+			name: "fourcc-bc5s",
+			header: &bcn.DDSHeader{
+				PixelFormat: bcn.DDSPixelFormat{
+					Flags:  bcn.DDSPFFourCC,
+					FourCC: makeFourCC('B', 'C', '5', 'S'),
+				},
+			},
+			want: bcn.FormatBC5S,
+		},
+		{
 			name: "unknown",
 			header: &bcn.DDSHeader{
 				PixelFormat: bcn.DDSPixelFormat{
@@ -327,6 +362,9 @@ func TestExpectedDataLengthTable(t *testing.T) {
 		{name: "dxt1-4x4", format: bcn.FormatDXT1, w: 4, h: 4, want: 8},
 		{name: "dxt1-5x7", format: bcn.FormatDXT1, w: 5, h: 7, want: 32},
 		{name: "dxt5-4x4", format: bcn.FormatDXT5, w: 4, h: 4, want: 16},
+		{name: "bc4s-5x7", format: bcn.FormatBC4S, w: 5, h: 7, want: 32},
+		{name: "bc5s-5x7", format: bcn.FormatBC5S, w: 5, h: 7, want: 64},
+		{name: "bc7-5x7", format: bcn.FormatBC7, w: 5, h: 7, want: 64},
 		{name: "bgra8-1x1", format: bcn.FormatBGRA8, w: 1, h: 1, want: 4},
 		{name: "bgra8-5x7", format: bcn.FormatBGRA8, w: 5, h: 7, want: 140},
 		{name: "unknown", format: bcn.FormatUnknown, w: 4, h: 4, want: -1},
