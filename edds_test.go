@@ -348,6 +348,40 @@ func TestDetectFormatTable(t *testing.T) {
 			want: bcn.FormatDXT1,
 		},
 		{
+			name: "legacy-r8",
+			header: &bcn.DDSHeader{
+				PixelFormat: bcn.DDSPixelFormat{
+					Flags:       bcn.DDSPFRGB,
+					RGBBitCount: 8,
+					RBitMask:    0x000000ff,
+				},
+			},
+			want: bcn.FormatR8,
+		},
+		{
+			name: "legacy-rg8",
+			header: &bcn.DDSHeader{
+				PixelFormat: bcn.DDSPixelFormat{
+					Flags:       bcn.DDSPFLuminance | bcn.DDSPFAlphaPixels,
+					RGBBitCount: 16,
+					RBitMask:    0x000000ff,
+					ABitMask:    0x0000ff00,
+				},
+			},
+			want: bcn.FormatRG8,
+		},
+		{
+			name: "legacy-a8",
+			header: &bcn.DDSHeader{
+				PixelFormat: bcn.DDSPixelFormat{
+					Flags:       bcn.DDSPFAlpha,
+					RGBBitCount: 8,
+					ABitMask:    0x000000ff,
+				},
+			},
+			want: bcn.FormatA8,
+		},
+		{
 			name: "rgb-bgra8",
 			header: &bcn.DDSHeader{
 				PixelFormat: bcn.DDSPixelFormat{
@@ -360,6 +394,11 @@ func TestDetectFormatTable(t *testing.T) {
 				},
 			},
 			want: bcn.FormatBGRA8,
+		},
+		{
+			name: "dxgi-rgba4444",
+			dx10: &bcn.DDSHeaderDX10{DXGIFormat: 115},
+			want: bcn.FormatRGBA4444,
 		},
 		{
 			name: "dxgi-dxt5",
@@ -444,6 +483,9 @@ func TestExpectedDataLengthTable(t *testing.T) {
 		{name: "bc7-5x7", format: bcn.FormatBC7, w: 5, h: 7, want: 64},
 		{name: "bgra8-1x1", format: bcn.FormatBGRA8, w: 1, h: 1, want: 4},
 		{name: "bgra8-5x7", format: bcn.FormatBGRA8, w: 5, h: 7, want: 140},
+		{name: "a8-5x7", format: bcn.FormatA8, w: 5, h: 7, want: 35},
+		{name: "rg8-5x7", format: bcn.FormatRG8, w: 5, h: 7, want: 70},
+		{name: "rgba4444-5x7", format: bcn.FormatRGBA4444, w: 5, h: 7, want: 70},
 		{name: "unknown", format: bcn.FormatUnknown, w: 4, h: 4, want: -1},
 	}
 
@@ -455,6 +497,52 @@ func TestExpectedDataLengthTable(t *testing.T) {
 			got := expectedDataLength(tc.format, tc.w, tc.h)
 			if got != tc.want {
 				t.Fatalf("expectedDataLength(%v,%d,%d) = %d, want %d", tc.format, tc.w, tc.h, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWorkbenchCorpus(t *testing.T) {
+	tests := []struct {
+		name   string
+		file   string
+		format bcn.Format
+	}{
+		{name: "default", file: "mip-grid-256.edds", format: bcn.FormatBGRA8},
+		{name: "alpha", file: "mip-grid-256-Alpha.edds", format: bcn.FormatA8},
+		{name: "dxt5", file: "mip-grid-256-DXTCompression.edds", format: bcn.FormatDXT5},
+		{name: "bc7", file: "mip-grid-256-ColorHQCompression.edds", format: bcn.FormatBC7},
+		{name: "r8", file: "mip-grid-256-Red.edds", format: bcn.FormatR8},
+		{name: "bc4", file: "mip-grid-256-RedHQCompression.edds", format: bcn.FormatBC4},
+		{name: "rg8", file: "mip-grid-256-RedGreen.edds", format: bcn.FormatRG8},
+		{name: "bc5", file: "mip-grid-256-RedGreenHQCompression.edds", format: bcn.FormatBC5},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join("testdata", "corpus", tc.file)
+			f, err := os.Open(path)
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			header, dx10, err := readEDDSHeaders(f)
+			_ = f.Close()
+			if err != nil {
+				t.Fatalf("readEDDSHeaders: %v", err)
+			}
+			if header.Width != 256 || header.Height != 256 || header.MipMapCount != 9 {
+				t.Fatalf("header = %dx%d, %d mips; want 256x256, 9 mips", header.Width, header.Height, header.MipMapCount)
+			}
+			if got := detectFormat(header, dx10); got != tc.format {
+				t.Fatalf("detectFormat() = %v, want %v", got, tc.format)
+			}
+
+			img, err := Read(path)
+			if err != nil {
+				t.Fatalf("Read: %v", err)
+			}
+			if got := img.Bounds(); got != image.Rect(0, 0, 256, 256) {
+				t.Fatalf("bounds = %v, want 256x256", got)
 			}
 		})
 	}

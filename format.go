@@ -37,6 +37,10 @@ func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) bcn.Format {
 	}
 
 	if (pf.Flags & bcn.DDSPFRGB) != 0 {
+		if pf.RGBBitCount == 8 && pf.RBitMask == 0x000000ff &&
+			pf.GBitMask == 0 && pf.BBitMask == 0 && pf.ABitMask == 0 {
+			return bcn.FormatR8
+		}
 		if (pf.Flags&bcn.DDSPFAlphaPixels != 0) && pf.RGBBitCount == 32 {
 			if pf.RBitMask == 0x000000ff && pf.GBitMask == 0x0000ff00 &&
 				pf.BBitMask == 0x00ff0000 && pf.ABitMask == 0xff000000 {
@@ -49,8 +53,21 @@ func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) bcn.Format {
 		}
 	}
 
-	if (pf.Flags&bcn.DDSPFLuminance) != 0 && pf.RGBBitCount == 8 {
-		return bcn.FormatRGBA8
+	if (pf.Flags & bcn.DDSPFLuminance) != 0 {
+		if pf.RGBBitCount == 8 && pf.RBitMask == 0x000000ff &&
+			pf.GBitMask == 0 && pf.BBitMask == 0 && pf.ABitMask == 0 {
+			return bcn.FormatR8
+		}
+		if (pf.Flags&bcn.DDSPFAlphaPixels != 0) && pf.RGBBitCount == 16 &&
+			pf.RBitMask == 0x000000ff && pf.GBitMask == 0 && pf.BBitMask == 0 &&
+			pf.ABitMask == 0x0000ff00 {
+			return bcn.FormatRG8
+		}
+	}
+
+	if (pf.Flags&bcn.DDSPFAlpha) != 0 && pf.RGBBitCount == 8 &&
+		pf.RBitMask == 0 && pf.GBitMask == 0 && pf.BBitMask == 0 && pf.ABitMask == 0x000000ff {
+		return bcn.FormatA8
 	}
 
 	return bcn.FormatUnknown
@@ -59,11 +76,11 @@ func detectFormat(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) bcn.Format {
 // mapDxgiFormat maps a DXGI format to a BCn format.
 func mapDxgiFormat(dxgiFormat uint32) bcn.Format {
 	switch dxgiFormat {
-	case 71:
+	case 71, 72:
 		return bcn.FormatDXT1
-	case 74:
+	case 74, 75:
 		return bcn.FormatDXT3
-	case 77:
+	case 77, 78:
 		return bcn.FormatDXT5
 	case 80:
 		return bcn.FormatBC4
@@ -73,12 +90,32 @@ func mapDxgiFormat(dxgiFormat uint32) bcn.Format {
 		return bcn.FormatBC5
 	case 84:
 		return bcn.FormatBC5S
-	case 87:
+	case 87, 91:
 		return bcn.FormatBGRA8
-	case 98:
+	case 88, 93:
+		return bcn.FormatBGRX8
+	case 98, 99:
 		return bcn.FormatBC7
-	case 28:
+	case 24:
+		return bcn.FormatRGB10A2
+	case 28, 29:
 		return bcn.FormatRGBA8
+	case 49:
+		return bcn.FormatRG8
+	case 51:
+		return bcn.FormatRG8S
+	case 61:
+		return bcn.FormatR8
+	case 63:
+		return bcn.FormatR8S
+	case 65:
+		return bcn.FormatA8
+	case 85:
+		return bcn.FormatRGB565
+	case 86:
+		return bcn.FormatRGBA5551
+	case 115:
+		return bcn.FormatRGBA4444
 	default:
 		return bcn.FormatUnknown
 	}
@@ -119,8 +156,12 @@ func expectedDataLengthChecked(format bcn.Format, width, height int) (int, error
 		size = checkedDataLength((w+3)/4, (h+3)/4, 8)
 	case bcn.FormatDXT3, bcn.FormatDXT5, bcn.FormatBC5, bcn.FormatBC5S, bcn.FormatBC7:
 		size = checkedDataLength((w+3)/4, (h+3)/4, 16)
-	case bcn.FormatRGBA8, bcn.FormatBGRA8:
+	case bcn.FormatRGBA8, bcn.FormatBGRA8, bcn.FormatBGRX8, bcn.FormatRGB10A2:
 		size = checkedDataLength(w, h, 4)
+	case bcn.FormatR8, bcn.FormatR8S, bcn.FormatA8:
+		size = checkedDataLength(w, h)
+	case bcn.FormatRG8, bcn.FormatRG8S, bcn.FormatRGB565, bcn.FormatRGBA5551, bcn.FormatRGBA4444:
+		size = checkedDataLength(w, h, 2)
 	default:
 		return 0, ErrInvalidFormat
 	}

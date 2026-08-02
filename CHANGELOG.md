@@ -18,8 +18,10 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
-* Read support for DX10 BC7, BC4 signed-normalized,
-  and BC5 signed-normalized EDDS textures.
+* Read support for Workbench legacy A8, R8, and RG8 textures, plus DX10 BC7,
+  signed BC4/BC5, BGRX8, RGB10A2, R8S, RG8S, RGB565, RGBA5551, and RGBA4444.
+* Workbench-generated 256x256 read corpus covering
+  BGRA8, A8, R8, RG8, DXT5, BC4, BC5, and BC7.
 * Configurable EDDS read limits for block tables, block bodies,
   decoded payloads, output images, and buffered input.
 

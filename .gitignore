@@ -190,3 +190,4 @@ $RECYCLE.BIN/
 testdata/paa
 bench_*.txt
 *.pprof
+!testdata/corpus/mip-grid-256.png
