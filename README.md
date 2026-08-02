@@ -155,6 +155,8 @@ Copy the image if it must be retained.
 ## Notes
 
 * Writing supports `BGRA8`, `RGBA8`, `DXT1/3/5`, `BC4`, and `BC5`.
+  `WriteOptions.SwizzleProfile` can apply known Workbench channel transforms
+  before encoding; EDDS does not store the selected profile.
   Reading also supports DX10 `BC7`, signed `BC4`/`BC5`, `BGRX8`, `R8`,
   `RG8`, `RGB10A2`, `R8S`, `RG8S`, `A8`, `RGB565`, `RGBA5551`, and `RGBA4444`.
 * `DXT3`, `BC4`, `BC5` may decode in tooling

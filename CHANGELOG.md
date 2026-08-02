@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+* `SwizzleProfile` support for writing known Workbench channel transforms.
 * Read support for Workbench legacy A8, R8, and RG8 textures, plus DX10 BC7,
   signed BC4/BC5, BGRX8, RGB10A2, R8S, RG8S, RGB565, RGBA5551, and RGBA4444.
 * Workbench-generated 256x256 read corpus covering

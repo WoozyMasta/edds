@@ -23,6 +23,9 @@ type WriteOptions struct {
 	Format bcn.Format
 	// MaxMipMaps limits written mipmaps (0 = full chain).
 	MaxMipMaps int
+	// SwizzleProfile transforms channels before encoding. Zero leaves channels unchanged.
+	// The profile is not stored in EDDS metadata and is not applied while reading.
+	SwizzleProfile SwizzleProfile
 	// Compression configures EDDS block compression.
 	Compression CompressionOptions
 	// Compress controls EDDS block compression (LZ4 if true, COPY if false).
@@ -137,6 +140,7 @@ func EncodeFromBlocksWithCompressionOptions(
 // An Encoder is NOT safe for concurrent use; create one per worker goroutine.
 type Encoder struct {
 	mips          []*image.NRGBA
+	swizzledMips  []*image.NRGBA
 	payloads      [][]byte
 	blockPayloads [][]byte
 	blocks        []*Block
@@ -225,6 +229,7 @@ func normalizeWriteOptions(opts *WriteOptions) WriteOptions {
 		cfg.Format = opts.Format
 	}
 	cfg.MaxMipMaps = opts.MaxMipMaps
+	cfg.SwizzleProfile = opts.SwizzleProfile
 	cfg.Compress = opts.Compress
 	cfg.Compression = opts.Compression
 	cfg.EncodeOptions = opts.EncodeOptions
@@ -289,6 +294,9 @@ func writeWithOptions(
 	opts *WriteOptions,
 ) error {
 	cfg := normalizeWriteOptions(opts)
+	if err := validateSwizzleProfile(cfg.SwizzleProfile); err != nil {
+		return err
+	}
 
 	bounds := img.Bounds()
 	width := bounds.Dx()
@@ -306,6 +314,15 @@ func writeWithOptions(
 	}
 
 	mips := bcn.GenerateMipmapsN(img, mipMapCount, false)
+	if cfg.SwizzleProfile != SwizzleProfileNone {
+		for i, mip := range mips {
+			swizzled, err := applySwizzleProfileInto(nil, mip, cfg.SwizzleProfile)
+			if err != nil {
+				return err
+			}
+			mips[i] = swizzled
+		}
+	}
 
 	payloads := make([][]byte, len(mips))
 	for i, mip := range mips {
@@ -331,6 +348,9 @@ func (e *Encoder) writeWithOptions(
 	opts *WriteOptions,
 ) error {
 	cfg := normalizeWriteOptions(opts)
+	if err := validateSwizzleProfile(cfg.SwizzleProfile); err != nil {
+		return err
+	}
 
 	bounds := img.Bounds()
 	width := bounds.Dx()
@@ -349,10 +369,22 @@ func (e *Encoder) writeWithOptions(
 
 	// BCn owns mip generation; using the Into variant lets batch encoders retain buffers.
 	e.mips = bcn.GenerateMipmapsInto(e.mips, img, mipMapCount, false)
+	mips := e.mips
+	if cfg.SwizzleProfile != SwizzleProfileNone {
+		e.swizzledMips = ensureImageSlots(e.swizzledMips, len(e.mips))
+		for i, mip := range e.mips {
+			swizzled, err := applySwizzleProfileInto(e.swizzledMips[i], mip, cfg.SwizzleProfile)
+			if err != nil {
+				return err
+			}
+			e.swizzledMips[i] = swizzled
+		}
+		mips = e.swizzledMips
+	}
 
-	e.payloads = ensurePayloadSlots(e.payloads, len(e.mips))
-	payloads := e.payloads[:len(e.mips)]
-	for i, mip := range e.mips {
+	e.payloads = ensurePayloadSlots(e.payloads, len(mips))
+	payloads := e.payloads[:len(mips)]
+	for i, mip := range mips {
 		data, _, _, err := bcn.EncodeImageInto(payloads[i], mip, cfg.Format, cfg.EncodeOptions)
 		if err != nil {
 			return fmt.Errorf("%w: mipmap %d: %v", ErrCompressMipmap, i, err)
