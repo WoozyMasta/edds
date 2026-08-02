@@ -65,6 +65,9 @@ if err != nil {
 }
 ```
 
+`MaxMipMaps: 0` writes every level down to 1×1
+(for example, 16K produces 15 levels).
+
 ### Write EDDS with format
 
 ```go

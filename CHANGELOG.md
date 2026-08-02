@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning][].
   from non-seekable inputs.
 * Current EDDS block-table errors no longer fall back to legacy parsing.
 
+### Fixed
+
+* `MaxMipMaps: 0` now writes the complete mip chain
+  instead of capping it at 11 levels.
+
 ## [0.3.0][] - 2026-06-18
 
 ### Added

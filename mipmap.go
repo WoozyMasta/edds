@@ -27,10 +27,6 @@ func calculateMipMapCount(width, height int) (int, error) {
 		}
 	}
 
-	if count > 11 {
-		count = 11
-	}
-
 	return count, nil
 }
 

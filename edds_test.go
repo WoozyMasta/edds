@@ -460,6 +460,34 @@ func TestExpectedDataLengthTable(t *testing.T) {
 	}
 }
 
+func TestCalculateMipMapCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		width, height int
+		want          int
+	}{
+		{name: "1x1", width: 1, height: 1, want: 1},
+		{name: "1024x1024", width: 1024, height: 1024, want: 11},
+		{name: "8192x8192", width: 8192, height: 8192, want: 14},
+		{name: "16384x16384", width: 16384, height: 16384, want: 15},
+		{name: "16384x1", width: 16384, height: 1, want: 15},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := calculateMipMapCount(tc.width, tc.height)
+			if err != nil {
+				t.Fatalf("calculateMipMapCount: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("calculateMipMapCount(%d, %d) = %d, want %d", tc.width, tc.height, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReadLimits(t *testing.T) {
 	t.Parallel()
 
