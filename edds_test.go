@@ -548,6 +548,41 @@ func TestWorkbenchCorpus(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsUnsupportedDX10TextureTypes(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "corpus", "mip-grid-256-ColorHQCompression.edds"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	const (
+		dx10Offset              = 4 + bcn.DDSHeaderSize
+		resourceDimensionOffset = dx10Offset + 4
+		miscFlagOffset          = dx10Offset + 8
+		arraySizeOffset         = dx10Offset + 12
+	)
+	tests := []struct {
+		name   string
+		offset int
+		value  uint32
+	}{
+		{name: "array", offset: arraySizeOffset, value: 2},
+		{name: "cubemap", offset: miscFlagOffset, value: dx10MiscTextureCube},
+		{name: "volume", offset: resourceDimensionOffset, value: 4},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			corrupt := append([]byte(nil), data...)
+			binary.LittleEndian.PutUint32(corrupt[tc.offset:], tc.value)
+
+			_, err := Decode(bytes.NewReader(corrupt))
+			if !errors.Is(err, ErrUnsupportedTextureType) {
+				t.Fatalf("Decode error = %v, want ErrUnsupportedTextureType", err)
+			}
+		})
+	}
+}
+
 func TestCalculateMipMapCount(t *testing.T) {
 	t.Parallel()
 

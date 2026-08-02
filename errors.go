@@ -11,6 +11,8 @@ var (
 	ErrSizeOverflow = errors.New("size overflow")
 	// ErrInvalidFormat indicates unsupported format.
 	ErrInvalidFormat = errors.New("invalid format")
+	// ErrUnsupportedTextureType indicates a texture is not a single 2D image.
+	ErrUnsupportedTextureType = errors.New("unsupported texture type")
 	// ErrEmptyMipmaps indicates missing mipmap data.
 	ErrEmptyMipmaps = errors.New("empty mipmaps")
 	// ErrMipmapSizeMismatch indicates mipmap payload size mismatch.

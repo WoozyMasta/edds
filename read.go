@@ -22,6 +22,9 @@ const (
 	defaultMaxReadDecodedBytes = 1 << 30
 	defaultMaxReadImageBytes   = 1 << 30
 	defaultMaxReadInputBytes   = 2 << 30
+
+	dx10ResourceDimensionTexture2D = 3
+	dx10MiscTextureCube            = 0x4
 )
 
 // ReadOptions configures EDDS reading (e.g. BCn decode workers).
@@ -121,8 +124,11 @@ func ReadConfig(path string) (image.Config, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	header, _, err := readEDDSHeaders(f)
+	header, dx10, err := readEDDSHeaders(f)
 	if err != nil {
+		return image.Config{}, err
+	}
+	if err := validateTextureType(header, dx10); err != nil {
 		return image.Config{}, err
 	}
 
@@ -167,6 +173,9 @@ func ReadWithOptions(path string, opts *ReadOptions) (image.Image, error) {
 
 	header, dx10, err := readEDDSHeaders(f)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateTextureType(header, dx10); err != nil {
 		return nil, err
 	}
 
@@ -251,6 +260,9 @@ func (d *Decoder) decodeReadSeeker(r io.ReadSeeker, opts *ReadOptions, limits re
 	if err != nil {
 		return nil, err
 	}
+	if err := validateTextureType(header, dx10); err != nil {
+		return nil, err
+	}
 
 	format := detectFormat(header, dx10)
 
@@ -285,6 +297,9 @@ func (d *Decoder) decodeReadSeeker(r io.ReadSeeker, opts *ReadOptions, limits re
 func (d *Decoder) decodeStream(r *bufio.Reader, opts *ReadOptions, limits readLimits) (image.Image, error) {
 	header, dx10, err := readEDDSHeaders(r)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateTextureType(header, dx10); err != nil {
 		return nil, err
 	}
 
@@ -685,6 +700,27 @@ func readEDDSHeaders(r io.Reader) (*bcn.DDSHeader, *bcn.DDSHeaderDX10, error) {
 	}
 
 	return header, dx10, nil
+}
+
+// validateTextureType ensures the DDS resource maps to one NRGBA image.
+func validateTextureType(header *bcn.DDSHeader, dx10 *bcn.DDSHeaderDX10) error {
+	if (header.Caps2 & bcn.DDSCaps2Cubemap) != 0 {
+		return fmt.Errorf("%w: cubemaps are not supported", ErrUnsupportedTextureType)
+	}
+	if dx10 == nil {
+		return nil
+	}
+	if dx10.ResourceDimension != dx10ResourceDimensionTexture2D {
+		return fmt.Errorf("%w: DX10 resource dimension %d", ErrUnsupportedTextureType, dx10.ResourceDimension)
+	}
+	if dx10.ArraySize != 1 {
+		return fmt.Errorf("%w: DX10 array size %d", ErrUnsupportedTextureType, dx10.ArraySize)
+	}
+	if (dx10.MiscFlag & dx10MiscTextureCube) != 0 {
+		return fmt.Errorf("%w: DX10 cubemaps are not supported", ErrUnsupportedTextureType)
+	}
+
+	return nil
 }
 
 // readMipMapCount returns the header mip count after enforcing the configured limit.

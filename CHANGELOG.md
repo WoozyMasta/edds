@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning][].
 
 * `MaxMipMaps: 0` now writes the complete mip chain
   instead of capping it at 11 levels.
+* Reject DX10 arrays, cubemaps, and volume textures,
+  which cannot be represented by the single-image read API.
 
 ## [0.3.0][] - 2026-06-18
 
