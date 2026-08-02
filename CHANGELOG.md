@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning][].
 * `Decode` now reads current EDDS block streams sequentially
   from non-seekable inputs.
 * Current EDDS block-table errors no longer fall back to legacy parsing.
+* Reusable LZ4 decoding now passes chunk views directly to the decompressor,
+  avoiding per-chunk allocations and copies.
 
 ### Fixed
 

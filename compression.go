@@ -5,10 +5,8 @@
 package edds
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io"
 
 	"github.com/pierrec/lz4/v4"
 )
@@ -446,30 +444,26 @@ func (d *blockDecompressor) decompressBlock(dst []byte, block *Block, expectedUn
 	target := ensureLen(dst, targetSize)
 	outIdx := 0
 
-	r := bytes.NewReader(data)
+	offset := 0
 	for {
-		if r.Len() < 4 {
-			return nil, fmt.Errorf("%w: need 4 bytes header, have %d", ErrChunkStreamTruncated, r.Len())
+		remainingData := len(data) - offset
+		if remainingData < 4 {
+			return nil, fmt.Errorf("%w: need 4 bytes header, have %d", ErrChunkStreamTruncated, remainingData)
 		}
 
-		var hdr [4]byte
-		if _, err := io.ReadFull(r, hdr[:]); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrChunkHeaderRead, err)
-		}
-
-		cSize := int(hdr[0]) | (int(hdr[1]) << 8) | (int(hdr[2]) << 16)
-		flags := hdr[3]
+		cSize := int(data[offset]) | (int(data[offset+1]) << 8) | (int(data[offset+2]) << 16)
+		flags := data[offset+3]
+		offset += 4
 		if (flags &^ 0x80) != 0 {
 			return nil, fmt.Errorf("%w: 0x%02x", ErrUnknownLZ4Flags, flags)
 		}
-		if cSize <= 0 || cSize > r.Len() {
-			return nil, fmt.Errorf("%w: %d (remaining %d)", ErrInvalidChunkSize, cSize, r.Len())
+		remainingData = len(data) - offset
+		if cSize <= 0 || cSize > remainingData {
+			return nil, fmt.Errorf("%w: %d (remaining %d)", ErrInvalidChunkSize, cSize, remainingData)
 		}
 
-		compressed := make([]byte, cSize)
-		if _, err := io.ReadFull(r, compressed); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrChunkDataRead, err)
-		}
+		compressed := data[offset : offset+cSize]
+		offset += cSize
 
 		remaining := targetSize - outIdx
 		if remaining <= 0 {
@@ -511,8 +505,8 @@ func (d *blockDecompressor) decompressBlock(dst []byte, block *Block, expectedUn
 	if outIdx != targetSize {
 		return nil, fmt.Errorf("%w: expected %d, got %d", ErrDecodedSizeMismatch, targetSize, outIdx)
 	}
-	if r.Len() != 0 {
-		return nil, fmt.Errorf("%w: %d bytes left after decode", ErrBlockLengthMismatch, r.Len())
+	if offset != len(data) {
+		return nil, fmt.Errorf("%w: %d bytes left after decode", ErrBlockLengthMismatch, len(data)-offset)
 	}
 
 	return target, nil
