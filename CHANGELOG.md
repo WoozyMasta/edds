@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
-## Unreleased
+## [0.4.0][] - 2026-08-02
 
 ### Added
 
@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning][].
   instead of capping it at 11 levels.
 * Reject DX10 arrays, cubemaps, and volume textures,
   which cannot be represented by the single-image read API.
+
+[0.4.0]: https://github.com/WoozyMasta/edds/compare/v0.3.0...v0.4.0
 
 ## [0.3.0][] - 2026-06-18
 
