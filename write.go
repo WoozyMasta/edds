@@ -431,38 +431,34 @@ func writeFromBlocks(
 		}
 	}
 
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("%w: %q: %v", ErrCreateFile, path, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	if err := bcn.WriteDDSMagic(f); err != nil {
-		return fmt.Errorf("%w: %v", ErrWriteDDSMagic, err)
-	}
-	if err := bcn.WriteDDSHeader(f, header); err != nil {
-		return fmt.Errorf("%w: %v", ErrWriteDDSHeader, err)
-	}
-
-	// EDDS stores mip table entries from smallest to largest mip.
-	for i, v := range slices.Backward(blocks) {
-		block := v
-		if _, err := f.Write([]byte(block.Magic)); err != nil {
-			return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockMagic, i, err)
+	return writeFileAtomic(path, func(f *os.File) error {
+		if err := bcn.WriteDDSMagic(f); err != nil {
+			return fmt.Errorf("%w: %v", ErrWriteDDSMagic, err)
 		}
-		if err := binary.Write(f, binary.LittleEndian, block.Size); err != nil {
-			return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockSize, i, err)
+		if err := bcn.WriteDDSHeader(f, header); err != nil {
+			return fmt.Errorf("%w: %v", ErrWriteDDSHeader, err)
 		}
-	}
 
-	// Payload order mirrors the table order.
-	for i, v := range slices.Backward(blocks) {
-		if err := writeBlockData(f, v); err != nil {
-			return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockData, i, err)
+		// EDDS stores mip table entries from smallest to largest mip.
+		for i, v := range slices.Backward(blocks) {
+			block := v
+			if _, err := f.Write([]byte(block.Magic)); err != nil {
+				return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockMagic, i, err)
+			}
+			if err := binary.Write(f, binary.LittleEndian, block.Size); err != nil {
+				return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockSize, i, err)
+			}
 		}
-	}
 
-	return nil
+		// Payload order mirrors the table order.
+		for i, v := range slices.Backward(blocks) {
+			if err := writeBlockData(f, v); err != nil {
+				return fmt.Errorf("%w: mipmap %d: %v", ErrWriteBlockData, i, err)
+			}
+		}
+
+		return nil
+	})
 }
 
 // writeFromBlocks validates pre-encoded mipmaps and writes an EDDS stream.

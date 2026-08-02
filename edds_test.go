@@ -732,3 +732,52 @@ func TestWriteWithFormatAndCompressionCOPYPath(t *testing.T) {
 		t.Fatalf("COPY path pixel mismatch")
 	}
 }
+
+func TestWriteFileAtomic(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "texture.edds")
+	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	writeErr := errors.New("write failed")
+	err := writeFileAtomic(path, func(f *os.File) error {
+		if _, err := f.Write([]byte("partial")); err != nil {
+			return err
+		}
+		return writeErr
+	})
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("writeFileAtomic error = %v, want write error", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile after failed write: %v", err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("file after failed write = %q, want original", data)
+	}
+
+	if err := writeFileAtomic(path, func(f *os.File) error {
+		_, err := f.Write([]byte("replacement"))
+		return err
+	}); err != nil {
+		t.Fatalf("writeFileAtomic replacement: %v", err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile after replacement: %v", err)
+	}
+	if string(data) != "replacement" {
+		t.Fatalf("file after replacement = %q, want replacement", data)
+	}
+
+	tempFiles, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".texture.edds.tmp-*"))
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	if len(tempFiles) != 0 {
+		t.Fatalf("temporary files remain: %v", tempFiles)
+	}
+}

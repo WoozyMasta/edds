@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning][].
 ### Changed
 
 * Default EDDS reads now enforce limits that accept 16K RGBA textures.
+* Path-based write APIs now replace output files only after a successful encode.
 * `Decode` now reads current EDDS block streams sequentially
   from non-seekable inputs.
 * Current EDDS block-table errors no longer fall back to legacy parsing.

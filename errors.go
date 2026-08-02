@@ -95,6 +95,8 @@ var (
 	ErrCompressMipmap = errors.New("compress mipmap failed")
 	// ErrCreateFile indicates file creation failed.
 	ErrCreateFile = errors.New("create file failed")
+	// ErrAtomicWrite indicates finalizing an atomic file write failed.
+	ErrAtomicWrite = errors.New("atomic file write failed")
 	// ErrWriteDDSMagic indicates DDS magic write failed.
 	ErrWriteDDSMagic = errors.New("writing DDS magic failed")
 	// ErrWriteDDSHeader indicates DDS header write failed.
