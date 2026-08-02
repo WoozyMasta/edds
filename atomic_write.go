@@ -30,9 +30,6 @@ func writeFileAtomic(path string, write func(*os.File) error) (err error) {
 	if err := write(temp); err != nil {
 		return err
 	}
-	if err := temp.Sync(); err != nil {
-		return fmt.Errorf("%w: sync temporary file: %v", ErrAtomicWrite, err)
-	}
 	if err := temp.Close(); err != nil {
 		return fmt.Errorf("%w: close temporary file: %v", ErrAtomicWrite, err)
 	}
