@@ -19,6 +19,8 @@ import (
 type WriteOptions struct {
 	// EncodeOptions are passed directly to BCn encoder (quality/workers/etc.).
 	EncodeOptions *bcn.EncodeOptions
+	// Compression configures EDDS block compression.
+	Compression CompressionOptions
 	// Format selects output texture format.
 	Format bcn.Format
 	// MaxMipMaps limits written mipmaps (0 = full chain).
@@ -26,8 +28,6 @@ type WriteOptions struct {
 	// SwizzleProfile transforms channels before encoding. Zero leaves channels unchanged.
 	// The profile is not stored in EDDS metadata and is not applied while reading.
 	SwizzleProfile SwizzleProfile
-	// Compression configures EDDS block compression.
-	Compression CompressionOptions
 	// Compress controls EDDS block compression (LZ4 if true, COPY if false).
 	//
 	// Deprecated: use Compression.Mode.
